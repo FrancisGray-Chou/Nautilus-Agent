@@ -1,0 +1,53 @@
+name: Draft Alpha release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to test and package
+        required: true
+        type: string
+        default: v0.0.1-alpha.2
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.tag }}
+  draft:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Verify exact tag and package sources
+        run: |
+          python3 scripts/check_release.py --tag "$RELEASE_TAG"
+          python3 scripts/package_release.py
+      - name: Create prerelease draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            dist/*-source.zip dist/*-source.tar.gz dist/SHA256SUMS \
+            --verify-tag --draft --prerelease \
+            --title "Nautilus Alpha 0.0.1" \
+            --notes-file "docs/releases/$RELEASE_TAG.md"

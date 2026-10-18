@@ -1,0 +1,12 @@
+/target
+.env
+.env.*
+!.env.example
+.DS_Store
+/desktop/build/
+/desktop/out/
+/dist/
+.idea/
+*.iml
+__pycache__/
+*.py[cod]

@@ -1,0 +1,42 @@
+name: Bug report / 测试反馈
+description: Report a reproducible Alpha issue without sharing credentials.
+title: '[Alpha] '
+body:
+  - type: markdown
+    attributes:
+      value: 请勿提交 API key、.env、私人对话或完整用户目录。提供最小复现和已脱敏错误即可。
+  - type: input
+    id: version
+    attributes:
+      label: Nautilus version / 版本
+      placeholder: 0.0.1-alpha.2
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 环境
+      description: 操作系统、架构、JDK、Rust 版本，以及桌面端或 CLI。
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model / 模型
+      description: 平台及模型名称；不要填写 key。
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps / 复现步骤
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual behavior / 预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted error or screenshot / 脱敏错误或截图
