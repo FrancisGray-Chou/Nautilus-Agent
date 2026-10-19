@@ -8,7 +8,7 @@ Nautilus 将 DeepSeek、OpenAI、Gemini 和 Claude 集成在同一个桌面界�
 
 当前为早期文本对话原型，需从源码构建。提供 Markdown 阅读、代码复制与修改、批注及相关上下文增强；自定义 Agent 工具执行仍处于原型阶段。
 
-[GitHub 仓库](https://github.com/FrancisGray-Chou/Nautilus-Agent) · [更新内容](更新内容.md) · [版本记录](CHANGELOG.md) · [桌面指南](desktop/README.md) · [测试说明](docs/TESTING.md) · [隐私与密钥](desktop/PRIVACY.md) · [发布流程](docs/RELEASING.md)
+[GitHub 仓库](https://github.com/FrancisGray-Chou/Nautilus-Agent) · [更新内容](更新内容.md) · [版本记录](CHANGELOG.md) · [桌面指南](desktop/README.md) · [测试说明](docs/TESTING.md) · [隐私与密钥](desktop/PRIVACY.md) · [发布流程](docs/RELEASING.md) · [示例演示](docs/nautilus-demo/README.md)
 
 ![Nautilus 桌面界面与 Claude 四个子模型的动态折叠菜单](docs/assets/claude.png)
 
