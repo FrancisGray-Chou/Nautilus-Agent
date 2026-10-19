@@ -16,7 +16,9 @@ Nautilus 将 DeepSeek、OpenAI、Gemini 和 Claude 集成在同一个桌面界�
 
 *界面来自离线 Swing 渲染测试，使用模拟数据，不代表真实模型回答。*
 
-*演示示例使用Nautilus·Mixture专家模式（规划：DeepSeek-V4.1-Flash + 执行：Gemini-4-Argon + 复核汇总:Claude Fable 5.1）*
+*演示示例使用Nautilus·Mixture专家模式（规划：DeepSeek-V4.1-Flash + 执行：Gemini-4-Argon + 复核汇总:Claude-Fable 5.1）仅一轮生成产物*
+
+--提示词：帮我生成一个赛博朋克风格的贪吃蛇小游戏，用一个HTML网页。--
 
 ## 功能概览
 
