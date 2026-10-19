@@ -272,3 +272,8 @@ NAUTILUS_TEST_TRANSPORT=stdio ./desktop/test.sh
 
 
 发布至 GitHub：在已登录 GitHub CLI 且可正常联网的本机终端运行 `python3 scripts/publish_github.py --publish`。脚本保留远端历史，上传完整源码，等待 CI 后创建新标签和 Pre-release；不会覆盖已有版本。不带参数仅执行离线预览，详见[发布流程](docs/RELEASING.md)。
+
+
+## 生成作品演示
+
+[查看生成作品、模型组合与实际运行动图](docs/nautilus-demo/README.md)

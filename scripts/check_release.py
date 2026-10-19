@@ -18,6 +18,9 @@ ROOT_FILES = (
     "desktop/lib/README.md", "desktop/lib/LICENSE-commonmark.txt", "desktop/lib/SHA256SUMS",
 )
 PATTERNS = (
+    "docs/nautilus-demo/sources.json",
+    "docs/nautilus-demo/assets/*.gif",
+    "docs/nautilus-demo/examples/*.html",
     "src/**/*.rs", "desktop/src/main/java/**/*.java", "desktop/src/test/java/**/*.java",
     "desktop/lib/*.jar", "docs/**/*.md", "docs/assets/*.png", "scripts/*.py",
     ".github/workflows/*.yml", ".github/ISSUE_TEMPLATE/*.yml",
@@ -75,7 +78,7 @@ def validate(tag: str | None = None) -> list[Path]:
         if "_API_KEY=" in line and not line.lstrip().startswith("#") and line.split("=", 1)[1].strip():
             raise ValueError(".env.example 的 API key 必须留空")
     for path in files:
-        if path.suffix in {".jar", ".png"}:
+        if path.suffix in {".jar", ".png", ".gif"}:
             continue
         content = path.read_text(encoding="utf-8")
         if SECRET.search(content):

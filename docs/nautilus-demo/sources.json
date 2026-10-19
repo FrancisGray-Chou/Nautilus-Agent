@@ -1,0 +1,26 @@
+[
+  {
+    "original": "Max.html",
+    "path": "examples/max-cyber-snake.html",
+    "bytes": 29943,
+    "sha256": "d0c06c2875c5d135478216eafaa152421a42dadeddec9095bf6e3f1eb10568fe"
+  },
+  {
+    "original": "Deepseek v4.1-flash + Gemini 3.8flash.html",
+    "path": "examples/flash-flash-snake.html",
+    "bytes": 10279,
+    "sha256": "c42228475713f9b43fa653723afe4d09130050c74ed4f2f369e64c56f5a236b6"
+  },
+  {
+    "original": "Deepseek v4.1-flash + Gemini 4 Argon 1round.html",
+    "path": "examples/flash-argon-round1.html",
+    "bytes": 27574,
+    "sha256": "8272927f434c06a15f9192d74e5e434aa70d65cc0c58f1bd4d3cbfcedb9ff00d"
+  },
+  {
+    "original": "Deepseek v4.1-flash + Gemini 4 Argon 2round.html",
+    "path": "examples/flash-argon-round2.html",
+    "bytes": 28757,
+    "sha256": "3f75b06b6a89124c33d62a04bc6ec2c07311102db25df2f5b55d4c73d67eb9f4"
+  }
+]

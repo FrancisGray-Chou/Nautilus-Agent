@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AETHER NEXUS · 量子星云交互终端</title>
+  <style>
+    :root {
+      --primary: #00f2fe;
+      --secondary: #4facfe;
+      --accent: #a855f7;
+      /* [FIX-2] 提取 RGB 通道变量，消除硬编码颜色，确保主题切换 100% 同步 */
+      --rgb-primary: 0, 242, 254;
+      --rgb-secondary: 168, 85, 247;
+      --bg-dark: #03040b;
+      --card-bg: rgba(12, 16, 35, 0.55);
+      --border-glow: rgba(var(--rgb-primary), 0.38);
+      --rx: 0deg;
+      --ry: 0deg;
+      --glare-x: 50%;
+      --glare-y: 50%;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--bg-dark);
+      color: #ffffff;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    /* 动态极光背景层 */
+    #ambient-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(circle at 15% 25%, rgba(var(--rgb-primary), 0.15), transparent 38%),
+        radial-gradient(circle at 85% 75%, rgba(var(--rgb-secondary), 0.16), transparent 42%),
+        radial-gradient(circle at 50% 50%, rgba(var(--rgb-primary), 0.06), transparent 50%),
+        linear-gradient(135deg, #020308 0%, #070b19 50%, #03040b 100%);
+      filter: saturate(1.2);
+      transition: background 0.6s ease;
+    }
+
+    /* 科幻网格装饰层 */
+    .cyber-grid {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      background-image: 
+        linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(circle at center, black 30%, transparent 85%);
+      -webkit-mask-image: radial-gradient(circle at center, black 30%, transparent 85%);
+      pointer-events: none;
+    }
+
+    /* 核心粒子画布 */
+    #nexus-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    /* 顶部科幻 HUD 状态栏 */
+    .hud-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.2rem 2rem;
+      pointer-events: none;
+      font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+      font-size: 0.78rem;
+      letter-spacing: 0.12em;
+      color: rgba(255, 255, 255, 0.65);
+    }
+
+    .hud-box {
+      display: flex;
+      align-items: center;
+      gap: 1.2rem;
+      padding: 0.5rem 1rem;
+      background: rgba(8, 12, 28, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 10px var(--primary);
+      animation: pulseDot 2s infinite;
+    }
+
+    .hud-metric span {
+      color: var(--primary);
+      font-weight: 700;
+      transition: color 0.3s ease;
+    }
+
+    /* 中央 3D 视差主容器 */
+    .stage {
+      position: relative;
+      z-index: 5;
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      perspective: 1100px;
+      pointer-events: none;
+      padding: 1rem;
+    }
+
+    .hero-card {
+      position: relative;
+      width: min(680px, 92vw);
+      padding: clamp(1.8rem, 4vw, 3.2rem);
+      border-radius: 28px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-glow);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow: 
+        0 25px 60px rgba(0, 0, 0, 0.65),
+        0 0 40px rgba(var(--rgb-primary), 0.1),
+        inset 0 1px 1px rgba(255, 255, 255, 0.2);
+      transform-style: preserve-3d;
+      transform: rotateX(var(--rx)) rotateY(var(--ry));
+      transition: transform 0.12s ease-out, border-color 0.4s ease, box-shadow 0.4s ease;
+      text-align: center;
+      overflow: hidden;
+      pointer-events: auto;
+    }
+
+    /* 动态卡片反光层 */
+    .hero-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(
+        420px circle at var(--glare-x) var(--glare-y),
+        rgba(255, 255, 255, 0.12),
+        transparent 60%
+      );
+      pointer-events: none;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 1rem;
+      margin-bottom: 1.2rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      color: var(--primary);
+      background: rgba(var(--rgb-primary), 0.1);
+      border: 1px solid var(--border-glow);
+      transform: translateZ(25px);
+      transition: all 0.3s ease;
+    }
+
+    h1 {
+      font-size: clamp(2.4rem, 7vw, 4.8rem);
+      font-weight: 900;
+      line-height: 1.02;
+      letter-spacing: 0.04em;
+      margin-bottom: 1rem;
+      background: linear-gradient(90deg, #ffffff 0%, var(--primary) 35%, var(--accent) 70%, #ffffff 100%);
+      background-size: 250% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: textShimmer 6s linear infinite;
+      filter: drop-shadow(0 0 24px rgba(var(--rgb-primary), 0.28));
+      transform: translateZ(40px);
+    }
+
+    .subtitle {
+      max-width: 520px;
+      margin: 0 auto 1.8rem;
+      color: rgba(255, 255, 255, 0.72);
+      font-size: clamp(0.9rem, 2vw, 1.05rem);
+      line-height: 1.7;
+      transform: translateZ(30px);
+    }
+
+    /* 控制按钮组 */
+    .controls-area {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      align-items: center;
+      transform: translateZ(35px);
+    }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.65rem;
+    }
+
+    .cyber-btn {
+      cursor: pointer;
+      padding: 0.65rem 1.25rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.05);
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+      backdrop-filter: blur(6px);
+      outline: none;
+    }
+
+    .cyber-btn:hover, .cyber-btn:focus-visible {
+      border-color: var(--primary);
+      color: #fff;
+      background: rgba(var(--rgb-primary), 0.16);
+      transform: translateY(-2px);
+      box-shadow: 0 0 20px rgba(var(--rgb-primary), 0.3);
+    }
+
+    .cyber-btn.active {
+      border-color: var(--primary);
+      background: linear-gradient(135deg, rgba(var(--rgb-primary), 0.3), rgba(var(--rgb-secondary), 0.3));
+      color: #fff;
+      box-shadow: 0 0 24px rgba(var(--rgb-primary), 0.38);
+    }
+
+    .pulse-trigger {
+      padding: 0.85rem 2.2rem;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      border: 1px solid var(--primary);
+      background: linear-gradient(135deg, rgba(var(--rgb-primary), 0.25), rgba(var(--rgb-secondary), 0.32));
+      color: #fff;
+      box-shadow: 0 0 30px rgba(var(--rgb-primary), 0.26);
+    }
+
+    .pulse-trigger:active {
+      transform: scale(0.95);
+    }
+
+    /* 主题色切换器 */
+    .theme-dots {
+      display: flex;
+      gap: 0.7rem;
+      margin-top: 0.4rem;
+      align-items: center;
+    }
+
+    .theme-dot {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+      outline: none;
+      padding: 0;
+    }
+
+    .theme-dot:hover, .theme-dot.active, .theme-dot:focus-visible {
+      transform: scale(1.22);
+      border-color: #fff;
+      box-shadow: 0 0 14px currentColor;
+    }
+
+    /* [FIX-7] 底部操作提示：支持极窄屏自动换行不溢出 */
+    .footer-hint {
+      position: fixed;
+      bottom: 1.2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      max-width: 92vw;
+      font-size: 0.75rem;
+      line-height: 1.4;
+      letter-spacing: 0.08em;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.48);
+      background: rgba(5, 8, 20, 0.6);
+      padding: 0.45rem 1.1rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(6px);
+      white-space: normal;
+      pointer-events: none;
+    }
+
+    @keyframes textShimmer {
+      to { background-position: 250% 0; }
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.82); }
+    }
+
+    @media (max-width: 640px) {
+      .hud-header {
+        padding: 0.8rem 1rem;
+        font-size: 0.68rem;
+      }
+      .hud-hide-mobile {
+        display: none;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      h1, .status-dot { animation: none; }
+      .hero-card { transform: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="ambient-bg"></div>
+  <div class="cyber-grid"></div>
+  <canvas id="nexus-canvas"></canvas>
+
+  <!-- 顶部实时数据 HUD -->
+  <header class="hud-header">
+    <div class="hud-box">
+      <div class="status-dot"></div>
+      <span>SYSTEM // ONLINE</span>
+      <span class="hud-metric hud-hide-mobile">NODES: <span id="nodeCount">0</span></span>
+    </div>
+    <div class="hud-box">
+      <span class="hud-metric">FPS: <span id="fpsCounter">60</span></span>
+      <span class="hud-metric hud-hide-mobile">POS: <span id="coordsText">0, 0</span></span>
+    </div>
+  </header>
+
+  <!-- 中央交互面板 -->
+  <main class="stage">
+    <section class="hero-card" id="tiltCard">
+      <div class="badge">QUANTUM PARTICLE ENGINE v2.5</div>
+      <h1>AETHER NEXUS</h1>
+      <p class="subtitle">
+        移动指针操控力场轨迹，点击屏幕或按空格引爆超新星脉冲。实时切换引力、斥力与量子漩涡模式。
+      </p>
+
+      <div class="controls-area">
+        <div class="btn-row" role="group" aria-label="力场模式切换">
+          <button type="button" class="cyber-btn active" data-mode="attract">引力黑洞 (1)</button>
+          <button type="button" class="cyber-btn" data-mode="repulse">斥力护盾 (2)</button>
+          <button type="button" class="cyber-btn" data-mode="vortex">量子漩涡 (3)</button>
+        </div>
+
+        <button type="button" class="cyber-btn pulse-trigger" id="supernovaBtn">
+          ⚡ 释放超新星脉冲 (SPACE)
+        </button>
+
+        <!-- [FIX-3] 改为语义化 button 元素，支持键盘 Tab 与回车/空格无障碍切换 -->
+        <div class="theme-dots" role="group" aria-label="主题色彩切换">
+          <button type="button" class="theme-dot active" data-theme="cyber" style="background: #00f2fe; color: #00f2fe;" title="赛博青" aria-label="赛博青"></button>
+          <button type="button" class="theme-dot" data-theme="synth" style="background: #ff2a85; color: #ff2a85;" title="合成波紫" aria-label="合成波紫"></button>
+          <button type="button" class="theme-dot" data-theme="solar" style="background: #f59e0b; color: #f59e0b;" title="日冕流金" aria-label="日冕流金"></button>
+          <button type="button" class="theme-dot" data-theme="matrix" style="background: #10b981; color: #10b981;" title="矩阵翡翠" aria-label="矩阵翡翠"></button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="footer-hint">点击空白处引爆冲击波 · 拖拽吸引星云 · 快捷键 1/2/3 切模式 · SPACE 脉冲</div>
+
+  <script>
+    const canvas = document.getElementById("nexus-canvas");
+    const ctx = canvas.getContext("2d");
+    const tiltCard = document.getElementById("tiltCard");
+    const nodeCountEl = document.getElementById("nodeCount");
+    const fpsCounterEl = document.getElementById("fpsCounter");
+    const coordsTextEl = document.getElementById("coordsText");
+    const rootStyle = document.documentElement.style;
+
+    // 主题配色字典
+    const THEMES = {
+      cyber: {
+        primary: "#00f2fe",
+        secondary: "#a855f7",
+        rgbPrimary: "0, 242, 254",
+        rgbSecondary: "168, 85, 247"
+      },
+      synth: {
+        primary: "#ff2a85",
+        secondary: "#7928ca",
+        rgbPrimary: "255, 42, 133",
+        rgbSecondary: "121, 40, 202"
+      },
+      solar: {
+        primary: "#f59e0b",
+        secondary: "#ef4444",
+        rgbPrimary: "245, 158, 11",
+        rgbSecondary: "239, 68, 68"
+      },
+      matrix: {
+        primary: "#10b981",
+        secondary: "#06b6d4",
+        rgbPrimary: "16, 185, 129",
+        rgbSecondary: "6, 182, 212"
+      }
+    };
+
+    let currentTheme = THEMES.cyber;
+    let forceMode = "attract"; // 'attract' | 'repulse' | 'vortex'
+
+    let width = 0;
+    let height = 0;
+    let particles = [];
+    let shockwaves = [];
+    let sparks = [];
+    let trail = [];
+
+    const pointer = {
+      x: -9999,
+      y: -9999,
+      active: false
+    };
+
+    const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    // [FIX-7] 响应式监听 prefers-reduced-motion
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let reduceMotion = motionQuery.matches;
+    motionQuery.addEventListener("change", (e) => {
+      reduceMotion = e.matches;
+      if (reduceMotion) resetCardTilt();
+    });
+
+    const PARTICLE_COUNT = reduceMotion ? 50 : (isCoarsePointer ? 65 : 130);
+    const CONNECT_DIST = isCoarsePointer ? 110 : 145;
+
+    function rand(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function initParticles() {
+      particles = Array.from({ length: PARTICLE_COUNT }, () => {
+        const angle = rand(0, Math.PI * 2);
+        const speed = rand(0.25, 0.75);
+        const baseVx = Math.cos(angle) * speed;
+        const baseVy = Math.sin(angle) * speed;
+        return {
+          x: rand(0, width),
+          y: rand(0, height),
+          vx: baseVx,
+          vy: baseVy,
+          baseVx,
+          baseVy,
+          radius: rand(1.2, 2.8),
+          alpha: rand(0.35, 0.9),
+          isSecondary: Math.random() > 0.65
+        };
+      });
+      nodeCountEl.textContent = particles.length;
+    }
+
+    // [FIX-1] 画布尺寸调整：立即更新 DPR 变换矩阵，按比例平滑映射已有粒子坐标，不重置粒子状态
+    function resizeCanvas() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const prevW = width;
+      const prevH = height;
+
+      width = Math.max(1, window.innerWidth);
+      height = Math.max(1, window.innerHeight);
+
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.width = width + "px";
+      canvas.style.height = height + "px";
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      if (particles.length === 0) {
+        initParticles();
+      } else if (prevW > 0 && prevH > 0) {
+        const scaleX = width / prevW;
+        const scaleY = height / prevH;
+        for (const p of particles) {
+          p.x *= scaleX;
+          p.y *= scaleY;
+        }
+      }
+    }
+
+    // 触发冲击波与火花飞溅
+    function triggerShockwave(x, y, power = 1) {
+      shockwaves.push({
+        x,
+        y,
+        radius: 4,
+        maxRadius: Math.hypot(width, height) * 0.45 * power,
+        alpha: 1
+      });
+
+      // 产生高能散射火花
+      const sparkCount = Math.floor(26 * power);
+      for (let i = 0; i < sparkCount; i++) {
+        const angle = rand(0, Math.PI * 2);
+        const speed = rand(2.5, 9.5) * power;
+        sparks.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: rand(1, 2.4),
+          life: 1,
+          decay: rand(0.018, 0.038),
+          isSecondary: i % 2 === 0
+        });
+      }
+
+      // 冲击附近粒子
+      const blastRadius = 320 * power;
+      for (const p of particles) {
+        const dx = p.x - x;
+        const dy = p.y - y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < blastRadius) {
+          const force = Math.pow(1 - dist / blastRadius, 1.5) * 12 * power;
+          // [FIX-4] 防止爆心与粒子完全重合（dist === 0）时零向量导致推力失效
+          if (dist < 0.001) {
+            const randAngle = rand(0, Math.PI * 2);
+            p.vx += Math.cos(randAngle) * force;
+            p.vy += Math.sin(randAngle) * force;
+          } else {
+            p.vx += (dx / dist) * force;
+            p.vy += (dy / dist) * force;
+          }
+        }
+      }
+    }
+
+    // FPS 统计变量
+    let lastTime = performance.now();
+    let frameCount = 0;
+
+    // [FIX-6] 后台标签页切回时重置 FPS 计时基准，防止切回瞬间显示 0 FPS
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        lastTime = performance.now();
+        frameCount = 0;
+      }
+    });
+
+    function render(now) {
+      frameCount++;
+      if (now - lastTime >= 500) {
+        fpsCounterEl.textContent = Math.min(144, Math.round((frameCount * 1000) / (now - lastTime)));
+        frameCount = 0;
+        lastTime = now;
+      }
+
+      ctx.clearRect(0, 0, width, height);
+
+      // 1. 绘制鼠标彗星尾迹
+      if (trail.length > 1) {
+        for (let i = 0; i < trail.length - 1; i++) {
+          const pt = trail[i];
+          const nextPt = trail[i + 1];
+          pt.alpha -= 0.045;
+          if (pt.alpha <= 0) continue;
+
+          ctx.beginPath();
+          ctx.moveTo(pt.x, pt.y);
+          ctx.lineTo(nextPt.x, nextPt.y);
+          ctx.strokeStyle = `rgba(${currentTheme.rgbPrimary}, ${pt.alpha * 0.55})`;
+          ctx.lineWidth = (i / trail.length) * 6;
+          ctx.lineCap = "round";
+          ctx.stroke();
+        }
+        trail = trail.filter(pt => pt.alpha > 0);
+      }
+
+      // 2. 更新并绘制背景粒子
+      for (const p of particles) {
+        if (pointer.active) {
+          const dx = pointer.x - p.x;
+          const dy = pointer.y - p.y;
+          const dist = Math.hypot(dx, dy);
+          const maxRange = 220;
+
+          if (dist < maxRange && dist > 1) {
+            const factor = 1 - dist / maxRange;
+            if (forceMode === "attract") {
+              p.vx += (dx / dist) * factor * 0.22;
+              p.vy += (dy / dist) * factor * 0.22;
+            } else if (forceMode === "repulse") {
+              p.vx -= (dx / dist) * factor * 0.38;
+              p.vy -= (dy / dist) * factor * 0.38;
+            } else if (forceMode === "vortex") {
+              // 切向旋转力 + 微弱向心力
+              p.vx += (-dy / dist) * factor * 0.35 + (dx / dist) * factor * 0.06;
+              p.vy += (dx / dist) * factor * 0.35 + (dy / dist) * factor * 0.06;
+            }
+          }
+        }
+
+        // 速度阻尼并平滑回归基础漂移速度（保证永不静止）
+        p.vx = p.vx * 0.96 + p.baseVx * 0.04;
+        p.vy = p.vy * 0.96 + p.baseVy * 0.04;
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // 边界循环穿越
+        if (p.x < -15) p.x = width + 15;
+        if (p.x > width + 15) p.x = -15;
+        if (p.y < -15) p.y = height + 15;
+        if (p.y > height + 15) p.y = -15;
+
+        const rgb = p.isSecondary ? currentTheme.rgbSecondary : currentTheme.rgbPrimary;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${rgb}, ${p.alpha})`;
+        ctx.fill();
+      }
+
+      // 3. 粒子星座连线与鼠标神经连接
+      const maxDistSq = CONNECT_DIST * CONNECT_DIST;
+      for (let i = 0; i < particles.length; i++) {
+        const a = particles[i];
+
+        // 与鼠标连线
+        if (pointer.active) {
+          const mdx = a.x - pointer.x;
+          const mdy = a.y - pointer.y;
+          const mDistSq = mdx * mdx + mdy * mdy;
+          if (mDistSq < maxDistSq * 1.4) {
+            const mAlpha = (1 - Math.sqrt(mDistSq) / (CONNECT_DIST * 1.18)) * 0.45;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(pointer.x, pointer.y);
+            ctx.strokeStyle = `rgba(${currentTheme.rgbPrimary}, ${mAlpha})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        }
+
+        // 粒子间连线
+        for (let j = i + 1; j < particles.length; j++) {
+          const b = particles[j];
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          const distSq = dx * dx + dy * dy;
+
+          if (distSq < maxDistSq) {
+            const alpha = (1 - Math.sqrt(distSq) / CONNECT_DIST) * 0.24;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.strokeStyle = `rgba(${currentTheme.rgbSecondary}, ${alpha})`;
+            ctx.lineWidth = 0.85;
+            ctx.stroke();
+          }
+        }
+      }
+
+      // 4. 绘制高能飞溅火花
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const s = sparks[i];
+        s.x += s.vx;
+        s.y += s.vy;
+        s.vx *= 0.95;
+        s.vy *= 0.95;
+        s.life -= s.decay;
+
+        if (s.life <= 0) {
+          sparks.splice(i, 1);
+          continue;
+        }
+
+        const rgb = s.isSecondary ? currentTheme.rgbSecondary : currentTheme.rgbPrimary;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${rgb}, ${s.life})`;
+        ctx.fill();
+      }
+
+      // 5. 绘制双层能量冲击波
+      for (let i = shockwaves.length - 1; i >= 0; i--) {
+        const sw = shockwaves[i];
+        sw.radius = Math.min(sw.maxRadius, sw.radius + (sw.maxRadius - sw.radius) * 0.08 + 2.5);
+        sw.alpha -= 0.022;
+
+        if (sw.alpha <= 0) {
+          shockwaves.splice(i, 1);
+          continue;
+        }
+
+        ctx.beginPath();
+        ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${currentTheme.rgbPrimary}, ${sw.alpha})`;
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(sw.x, sw.y, sw.radius * 0.72, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${currentTheme.rgbSecondary}, ${sw.alpha * 0.65})`;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+
+      requestAnimationFrame(render);
+    }
+
+    // 卡片 3D 视差计算与复位
+    function updateCardTilt(clientX, clientY) {
+      if (reduceMotion) return;
+      const rect = tiltCard.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const normX = (clientX - centerX) / (width / 2);
+      const normY = (clientY - centerY) / (height / 2);
+
+      const rotateY = Math.max(-10, Math.min(10, normX * 8));
+      const rotateX = Math.max(-10, Math.min(10, -normY * 8));
+
+      const glareX = ((clientX - rect.left) / rect.width) * 100;
+      const glareY = ((clientY - rect.top) / rect.height) * 100;
+
+      rootStyle.setProperty("--rx", `${rotateX.toFixed(2)}deg`);
+      rootStyle.setProperty("--ry", `${rotateY.toFixed(2)}deg`);
+      rootStyle.setProperty("--glare-x", `${glareX.toFixed(1)}%`);
+      rootStyle.setProperty("--glare-y", `${glareY.toFixed(1)}%`);
+    }
+
+    function resetCardTilt() {
+      rootStyle.setProperty("--rx", "0deg");
+      rootStyle.setProperty("--ry", "0deg");
+    }
+
+    // 统一指针移动事件
+    window.addEventListener("pointermove", (e) => {
+      pointer.x = e.clientX;
+      pointer.y = e.clientY;
+      pointer.active = true;
+
+      coordsTextEl.textContent = `${Math.round(e.clientX)}, ${Math.round(e.clientY)}`;
+      trail.push({ x: e.clientX, y: e.clientY, alpha: 1 });
+      if (trail.length > 18) trail.shift();
+
+      if (!isCoarsePointer) {
+        updateCardTilt(e.clientX, e.clientY);
+      }
+    }, { passive: true });
+
+    // [FIX-5] 完善离开、触摸中断（pointercancel）与窗口失焦清理，杜绝幽灵力场
+    function deactivatePointer() {
+      pointer.active = false;
+      resetCardTilt();
+    }
+
+    window.addEventListener("pointerleave", deactivatePointer);
+    window.addEventListener("pointercancel", deactivatePointer);
+    window.addEventListener("blur", deactivatePointer);
+
+    // 点击空白画布引爆冲击波（过滤 UI 按钮点击，并保护 target 类型）
+    window.addEventListener("pointerdown", (e) => {
+      if (e.target instanceof Element && e.target.closest("button")) return;
+      pointer.x = e.clientX;
+      pointer.y = e.clientY;
+      pointer.active = true;
+      triggerShockwave(e.clientX, e.clientY, 1);
+    });
+
+    // 释放按键后若是触屏则取消持续吸引
+    window.addEventListener("pointerup", (e) => {
+      if (e.pointerType === "touch") {
+        pointer.active = false;
+      }
+    });
+
+    // 切换力场模式辅助函数
+    function setForceMode(mode) {
+      forceMode = mode;
+      document.querySelectorAll("[data-mode]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.mode === mode);
+      });
+    }
+
+    // [FIX-3] 键盘控制：防长按连发（e.repeat），并避免焦点在按钮上按 Space 引发双重脉冲
+    window.addEventListener("keydown", (e) => {
+      if (e.repeat) return;
+
+      if (e.code === "Space") {
+        // 若焦点在模式切换或主题圆点按钮上，保留原生空格点击切换行为
+        if (
+          e.target instanceof Element &&
+          e.target.closest("[data-mode], .theme-dot")
+        ) {
+          return;
+        }
+        // 其他情况（包括焦点在超新星按钮或 body 上）统一由全局接管一次脉冲
+        e.preventDefault();
+        triggerShockwave(width / 2, height / 2, 1.45);
+      } else if (e.key === "1") {
+        setForceMode("attract");
+      } else if (e.key === "2") {
+        setForceMode("repulse");
+      } else if (e.key === "3") {
+        setForceMode("vortex");
+      }
+    });
+
+    // 模式切换按钮
+    document.querySelectorAll("[data-mode]").forEach((btn) => {
+      btn.addEventListener("click", () => setForceMode(btn.dataset.mode));
+    });
+
+    // 超新星按钮
+    document.getElementById("supernovaBtn").addEventListener("click", () => {
+      triggerShockwave(width / 2, height / 2, 1.5);
+    });
+
+    // [FIX-2] 主题颜色切换：同步更新 CSS RGB 通道变量，全站光效无死角联动
+    document.querySelectorAll(".theme-dot").forEach((dot) => {
+      dot.addEventListener("click", () => {
+        document.querySelectorAll(".theme-dot").forEach(d => d.classList.remove("active"));
+        dot.classList.add("active");
+
+        const themeKey = dot.dataset.theme;
+        currentTheme = THEMES[themeKey] || THEMES.cyber;
+
+        rootStyle.setProperty("--primary", currentTheme.primary);
+        rootStyle.setProperty("--accent", currentTheme.secondary);
+        rootStyle.setProperty("--rgb-primary", currentTheme.rgbPrimary);
+        rootStyle.setProperty("--rgb-secondary", currentTheme.rgbSecondary);
+
+        triggerShockwave(width / 2, height / 2, 0.9);
+      });
+    });
+
+    window.addEventListener("resize", resizeCanvas);
+
+    // 启动运行
+    resizeCanvas();
+    requestAnimationFrame(render);
+  </script>
+</body>
+</html>

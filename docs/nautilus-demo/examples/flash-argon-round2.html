@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>NEON · 粒子形态系统 · 自测</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    background: radial-gradient(circle at 50% 45%, #0c0824 0%, #050312 50%, #010007 100%);
+    color: #e6f4ff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .aurora {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(85px);
+    opacity: 0.45;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .a1 { width: 50vw; height: 50vw; left: -10vw; top: -10vw; background: #0044aa; }
+  .a2 { width: 45vw; height: 45vw; right: -8vw; bottom: -8vw; background: #880066; }
+
+  #scene {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: block;
+  }
+
+  .hud {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    padding: 32px 24px;
+    pointer-events: none;
+  }
+
+  .brand {
+    font-size: 11px;
+    letter-spacing: 0.35em;
+    color: rgba(0, 240, 255, 0.75);
+    text-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+  }
+
+  .controls {
+    display: flex;
+    gap: 12px;
+    background: rgba(10, 16, 32, 0.65);
+    padding: 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 240, 255, 0.25);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    pointer-events: auto;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  }
+
+  .btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: rgba(210, 235, 255, 0.7);
+    padding: 9px 20px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    cursor: pointer;
+    transition: all 0.25s ease;
+  }
+  .btn:hover { color: #ffffff; }
+  .btn.active {
+    background: linear-gradient(135deg, #00f0ff, #7b2bff);
+    color: #03020a;
+    box-shadow: 0 0 16px rgba(0, 240, 255, 0.5);
+  }
+
+  .tip {
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    color: rgba(180, 215, 255, 0.4);
+  }
+
+  .panel {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: 390px;
+    max-width: calc(100vw - 32px);
+    max-height: 62vh;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    background: rgba(6, 10, 24, 0.92);
+    border: 1px solid rgba(0, 240, 255, 0.28);
+    border-radius: 12px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.65);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+    overflow: hidden;
+    transition: max-height 0.28s ease;
+  }
+  .panel.collapsed { max-height: 46px; }
+  .panel.collapsed .panel-body { display: none; }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 12px;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.16);
+    flex: 0 0 auto;
+  }
+
+  .panel-title {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    color: #8fd8ff;
+    white-space: nowrap;
+  }
+
+  .panel-summary {
+    flex: 1;
+    text-align: right;
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(180, 215, 255, 0.7);
+    white-space: nowrap;
+  }
+
+  .panel-btn {
+    appearance: none;
+    border: 1px solid rgba(0, 240, 255, 0.3);
+    background: rgba(0, 240, 255, 0.08);
+    color: #8fd8ff;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .panel-btn:hover {
+    background: rgba(0, 240, 255, 0.22);
+    color: #ffffff;
+  }
+
+  .panel-body {
+    overflow-y: auto;
+    padding: 6px 12px 12px;
+    font-size: 11px;
+    line-height: 1.7;
+    flex: 1 1 auto;
+  }
+
+  .group-label {
+    margin: 10px 0 4px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: rgba(0, 240, 255, 0.55);
+    border-bottom: 1px dashed rgba(0, 240, 255, 0.15);
+    padding-bottom: 4px;
+  }
+
+  .case {
+    display: flex;
+    gap: 8px;
+    padding: 2px 0;
+    color: rgba(200, 225, 250, 0.72);
+    word-break: break-word;
+  }
+  .case .tag {
+    flex: 0 0 34px;
+    font-weight: 700;
+  }
+  .case.pass .tag { color: #35f0a8; }
+  .case.fail { color: #ffb3c4; }
+  .case.fail .tag { color: #ff4d7a; }
+
+  @media (max-width: 640px) {
+    .panel {
+      left: 12px;
+      right: 12px;
+      width: auto;
+      max-height: 52vh;
+    }
+    .brand { font-size: 9px; letter-spacing: 0.24em; }
+    .tip { font-size: 9px; letter-spacing: 0.18em; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="aurora a1"></div>
+  <div class="aurora a2"></div>
+
+  <canvas id="scene"></canvas>
+
+  <div class="hud">
+    <div class="brand">MORPHING · PARTICLE SYSTEM</div>
+    <div class="controls">
+      <button class="btn active" data-mode="text" data-val="NEON">NEON</button>
+      <button class="btn" data-mode="text" data-val="FUTURE">FUTURE</button>
+      <button class="btn" data-mode="text" data-val="2026">2026</button>
+      <button class="btn" data-mode="float" data-val="">星尘散开</button>
+    </div>
+    <div class="tip">移动鼠标穿透字形 · 点击引爆冲击波</div>
+  </div>
+
+  <div class="panel" id="panel">
+    <div class="panel-head">
+      <span class="panel-title">SELF-TEST</span>
+      <span class="panel-summary" id="summary">—</span>
+      <button class="panel-btn" id="rerun">RUN</button>
+      <button class="panel-btn" id="collapseBtn">收起</button>
+    </div>
+    <div class="panel-body" id="testBody"></div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  const initialFontSize = function (W, H, maxSize) {
+    return Math.min(W * 0.22, H * 0.32, maxSize);
+  };
+
+  const fitFontSize = function (W, initial, measureWidth, maxRatio) {
+    const maxW = W * maxRatio;
+    const w = measureWidth(initial);
+    if (!(w > maxW) || !(w > 0)) return initial;
+    return Math.floor(initial * (maxW / w));
+  };
+
+  const boxSize = function (textWidth, fontSize) {
+    return {
+      boxW: Math.max(20, Math.ceil(textWidth) + 32),
+      boxH: Math.max(20, Math.ceil(fontSize * 1.35))
+    };
+  };
+
+  const sampleStep = function (W, H) {
+    return Math.max(4, Math.floor(Math.min(W, H) / 120));
+  };
+
+  const assignTargets = function (particles, points, mode, rng) {
+    const rand = rng || Math.random;
+    const n = points.length;
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      if (mode === 'text' && n > 0) {
+        const pt = points[i % n];
+        p.tx = pt.x + (rand() - 0.5) * 2;
+        p.ty = pt.y + (rand() - 0.5) * 2;
+      } else {
+        p.tx = null;
+        p.ty = null;
+      }
+    }
+    return particles;
+  };
+
+  const repulse = function (px, py, mx, my, R, strength) {
+    const dx = px - mx;
+    const dy = py - my;
+    const d2 = dx * dx + dy * dy;
+    if (!(d2 < R * R)) return { fx: 0, fy: 0 };
+    if (!(d2 > 0.5)) return { fx: 0, fy: 0 };
+    const d = Math.sqrt(d2);
+    const f = (1 - d / R) * strength;
+    return { fx: (dx / d) * f, fy: (dy / d) * f };
+  };
+
+  const wavePush = function (px, py, w, width, strength) {
+    const dx = px - w.x;
+    const dy = py - w.y;
+    if (dx === 0 && dy === 0) return { fx: 0, fy: 0 };
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const diff = Math.abs(d - w.r);
+    if (!(diff < width)) return { fx: 0, fy: 0 };
+    const f = (1 - diff / width) * w.life * strength;
+    return { fx: (dx / d) * f, fy: (dy / d) * f };
+  };
+
+  const clampSpeed = function (vx, vy, max) {
+    if (!Number.isFinite(vx) || !Number.isFinite(vy)) return { vx: 0, vy: 0 };
+    const sp = Math.sqrt(vx * vx + vy * vy);
+    if (!(sp > max)) return { vx: vx, vy: vy };
+    const s = max / sp;
+    return { vx: vx * s, vy: vy * s };
+  };
+
+  const wrapCoord = function (v, size, pad) {
+    if (v < -pad) return size + pad;
+    if (v > size + pad) return -pad;
+    return v;
+  };
+
+  const softPull = function (p, limit, cfg) {
+    const dxT = p.x - p.tx;
+    const dyT = p.y - p.ty;
+    const d2T = dxT * dxT + dyT * dyT;
+    if (!(d2T > limit * limit)) return p;
+    const dT = Math.sqrt(d2T);
+    const decay = Math.pow(cfg.pullDecay, cfg.dt);
+    p.vx *= decay;
+    p.vy *= decay;
+    const pull = (dT - limit) * cfg.pullStrength * cfg.dt;
+    p.vx -= (dxT / dT) * pull;
+    p.vy -= (dyT / dT) * pull;
+    return p;
+  };
+
+  const stepParticle = function (p, cfg) {
+    const W = cfg.W;
+    const H = cfg.H;
+    const dt = cfg.dt;
+    const limit = Math.min(W, H) * cfg.limitRatio;
+
+    if (!Number.isFinite(p.bvx)) p.bvx = 0;
+    if (!Number.isFinite(p.bvy)) p.bvy = 0;
+    if (!Number.isFinite(p.vx)) p.vx = 0;
+    if (!Number.isFinite(p.vy)) p.vy = 0;
+    if (!Number.isFinite(p.x)) {
+      p.x = Number.isFinite(p.tx) ? p.tx : W * cfg.fallbackX;
+      p.vx = 0;
+    }
+    if (!Number.isFinite(p.y)) {
+      p.y = Number.isFinite(p.ty) ? p.ty : H * cfg.fallbackY;
+      p.vy = 0;
+    }
+
+    const useSpring = cfg.mode === 'text' && Number.isFinite(p.tx) && Number.isFinite(p.ty);
+
+    if (useSpring) {
+      const sdt = Math.min(dt, 1);
+      const ax = (p.tx - p.x) * cfg.stiffness;
+      const ay = (p.ty - p.y) * cfg.stiffness;
+      const damp = Math.pow(cfg.damping, sdt);
+      p.vx = (p.vx + ax * sdt) * damp;
+      p.vy = (p.vy + ay * sdt) * damp;
+      softPull(p, limit, cfg);
+    } else {
+      p.vx += (p.bvx - p.vx) * cfg.drift * dt;
+      p.vy += (p.bvy - p.vy) * cfg.drift * dt;
+    }
+
+    if (cfg.mouse && cfg.mouse.active) {
+      const r = repulse(p.x, p.y, cfg.mouse.x, cfg.mouse.y, cfg.mouseR, cfg.mouseForce);
+      p.vx += r.fx * dt;
+      p.vy += r.fy * dt;
+    }
+
+    if (cfg.waves && cfg.waves.length > 0) {
+      for (let k = 0; k < cfg.waves.length; k++) {
+        const f = wavePush(p.x, p.y, cfg.waves[k], cfg.waveWidth, cfg.waveForce);
+        p.vx += f.fx * dt;
+        p.vy += f.fy * dt;
+      }
+    }
+
+    const c = clampSpeed(p.vx, p.vy, cfg.maxSpeed);
+    p.vx = c.vx;
+    p.vy = c.vy;
+
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    if (!useSpring) {
+      p.x = wrapCoord(p.x, W, cfg.wrapPad);
+      p.y = wrapCoord(p.y, H, cfg.wrapPad);
+    }
+
+    if (!Number.isFinite(p.x)) {
+      p.x = Number.isFinite(p.tx) ? p.tx : W * cfg.fallbackX;
+      p.vx = 0;
+    }
+    if (!Number.isFinite(p.y)) {
+      p.y = Number.isFinite(p.ty) ? p.ty : H * cfg.fallbackY;
+      p.vy = 0;
+    }
+
+    return p;
+  };
+
+  const canvas = document.getElementById('scene');
+  const ctx = canvas.getContext('2d');
+  const offCanvas = document.createElement('canvas');
+  const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
+
+  const TAU = Math.PI * 2;
+  const PARTICLE_COUNT = 900;
+  const MAX_FONT_SIZE = 170;
+  const CANVAS_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+
+  let W = 0;
+  let H = 0;
+  let DPR = 1;
+  let particles = [];
+  let waves = [];
+  let currentMode = 'text';
+  let currentText = 'NEON';
+
+  const mouse = { x: -9999, y: -9999, active: false };
+
+  const FRAME = {
+    W: 0,
+    H: 0,
+    dt: 1,
+    mode: 'text',
+    stiffness: 0.055,
+    damping: 0.86,
+    pullDecay: 0.9,
+    pullStrength: 0.012,
+    limitRatio: 0.42,
+    drift: 0.02,
+    mouse: mouse,
+    mouseR: 140,
+    mouseForce: 1.7,
+    waves: waves,
+    waveWidth: 90,
+    waveForce: 3.4,
+    maxSpeed: 12,
+    wrapPad: 30,
+    fallbackX: 0.5,
+    fallbackY: 0.5
+  };
+
+  function setOffFont(size) {
+    offCtx.font = '900 ' + size + 'px ' + CANVAS_FONT;
+  }
+
+  function sampleTextPoints(text) {
+    const init = initialFontSize(W, H, MAX_FONT_SIZE);
+    setOffFont(init);
+    const size = fitFontSize(W, init, function (v) {
+      setOffFont(v);
+      return offCtx.measureText(text).width;
+    }, 0.82);
+
+    setOffFont(size);
+    const tw = offCtx.measureText(text).width;
+    const box = boxSize(tw, size);
+
+    offCanvas.width = box.boxW;
+    offCanvas.height = box.boxH;
+    offCtx.clearRect(0, 0, box.boxW, box.boxH);
+    setOffFont(size);
+    offCtx.textAlign = 'center';
+    offCtx.textBaseline = 'middle';
+    offCtx.fillStyle = '#ffffff';
+    offCtx.fillText(text, box.boxW / 2, box.boxH / 2);
+
+    const img = offCtx.getImageData(0, 0, box.boxW, box.boxH).data;
+    const step = sampleStep(W, H);
+    const points = [];
+    const ox = (W - box.boxW) / 2;
+    const oy = (H - box.boxH) / 2;
+
+    for (let y = 0; y < box.boxH; y += step) {
+      for (let x = 0; x < box.boxW; x += step) {
+        if (img[(y * box.boxW + x) * 4 + 3] > 140) {
+          points.push({ x: x + ox, y: y + oy });
+        }
+      }
+    }
+
+    for (let i = points.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = points[i];
+      points[i] = points[j];
+      points[j] = t;
+    }
+
+    return points;
+  }
+
+  function initParticles() {
+    particles = new Array(PARTICLE_COUNT);
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const angle = Math.random() * TAU;
+      const speed = 0.2 + Math.random() * 0.6;
+      particles[i] = {
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: 0,
+        vy: 0,
+        bvx: Math.cos(angle) * speed,
+        bvy: Math.sin(angle) * speed,
+        tx: null,
+        ty: null,
+        r: 1 + Math.random() * 1.6,
+        hue: 175 + Math.random() * 120
+      };
+    }
+  }
+
+  function switchState(mode, text) {
+    currentMode = mode;
+    currentText = text;
+    if (mode === 'text') {
+      assignTargets(particles, sampleTextPoints(text), 'text');
+    } else {
+      assignTargets(particles, [], 'float');
+    }
+  }
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    if (particles.length === 0) {
+      initParticles();
+    }
+    switchState(currentMode, currentText);
+  }
+
+  function update(dt) {
+    FRAME.W = W;
+    FRAME.H = H;
+    FRAME.dt = dt;
+    FRAME.mode = currentMode;
+    FRAME.mouse = mouse;
+    FRAME.waves = waves;
+    for (let i = 0; i < particles.length; i++) {
+      stepParticle(particles[i], FRAME);
+    }
+  }
+
+  function render(dt) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (let i = waves.length - 1; i >= 0; i--) {
+      const w = waves[i];
+      w.r += 19 * dt;
+      w.life -= 0.016 * dt;
+      if (w.life <= 0) {
+        waves.splice(i, 1);
+        continue;
+      }
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r, 0, TAU);
+      ctx.lineWidth = 1 + w.life * 3;
+      ctx.strokeStyle = 'rgba(0, 240, 255, ' + (w.life * 0.45).toFixed(3) + ')';
+      ctx.stroke();
+    }
+
+    update(dt);
+
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 2.8, 0, TAU);
+      ctx.fillStyle = 'hsla(' + p.hue + ', 100%, 70%, 0.12)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, TAU);
+      ctx.fillStyle = 'hsla(' + p.hue + ', 100%, 75%, 0.9)';
+      ctx.fill();
+    }
+
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  let lastTime = performance.now();
+  function loop(now) {
+    let dt = (now - lastTime) / 16.667;
+    lastTime = now;
+    dt = Math.min(2.5, Math.max(0.15, dt));
+    render(dt);
+    requestAnimationFrame(loop);
+  }
+
+  window.addEventListener('pointermove', function (e) {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.active = true;
+  }, { passive: true });
+
+  window.addEventListener('pointerdown', function (e) {
+    if (e.target.closest('.controls')) return;
+    if (e.target.closest('.panel')) return;
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.active = true;
+    waves.push({ x: e.clientX, y: e.clientY, r: 0, life: 1 });
+    if (waves.length > 5) waves.shift();
+  }, { passive: true });
+
+  document.documentElement.addEventListener('pointerleave', function () {
+    mouse.active = false;
+  });
+
+  window.addEventListener('blur', function () {
+    mouse.active = false;
+  });
+
+  document.querySelector('.controls').addEventListener('click', function (e) {
+    const target = e.target.closest('.btn');
+    if (!target) return;
+    document.querySelectorAll('.btn').forEach(function (btn) {
+      btn.classList.remove('active');
+    });
+    target.classList.add('active');
+    switchState(target.dataset.mode, target.dataset.val);
+  });
+
+  let resizeTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(resize, 120);
+  });
+
+  function makeParticle(over) {
+    const p = { x: 0, y: 0, vx: 0, vy: 0, bvx: 0, bvy: 0, tx: null, ty: null };
+    if (over) {
+      for (const k in over) {
+        if (Object.prototype.hasOwnProperty.call(over, k)) p[k] = over[k];
+      }
+    }
+    return p;
+  }
+
+  function baseCfg() {
+    return {
+      W: 1000,
+      H: 1000,
+      dt: 1,
+      mode: 'text',
+      stiffness: 0.055,
+      damping: 0.86,
+      pullDecay: 0.9,
+      pullStrength: 0.012,
+      limitRatio: 0.42,
+      drift: 0.02,
+      mouseR: 140,
+      mouseForce: 1.7,
+      waveWidth: 90,
+      waveForce: 3.4,
+      maxSpeed: 12,
+      wrapPad: 30,
+      fallbackX: 0.5,
+      fallbackY: 0.5,
+      mouse: { x: 0, y: 0, active: false },
+      waves: []
+    };
+  }
+
+  function runAllTests() {
+    const rows = [];
+    let pass = 0;
+    let fail = 0;
+
+    const near = function (a, b, eps) {
+      const e = eps === undefined ? 1e-9 : eps;
+      return typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) <= e;
+    };
+
+    const assert = function (cond, msg) {
+      if (!cond) throw new Error(msg || '断言失败');
+    };
+
+    const check = function (group, name, fn) {
+      try {
+        fn();
+        pass++;
+        rows.push({ group: group, name: name, ok: true, msg: '' });
+      } catch (e) {
+        fail++;
+        rows.push({ group: group, name: name, ok: false, msg: e && e.message ? e.message : String(e) });
+      }
+    };
+
+    check('字号与采样', 'initialFontSize 桌面取上限 170', function () {
+      const s = initialFontSize(1920, 1080, 170);
+      assert(near(s, 170), '得到 ' + s);
+    });
+
+    check('字号与采样', 'fitFontSize 长词超宽按比例缩小', function () {
+      const init = initialFontSize(375, 667, 170);
+      const s = fitFontSize(375, init, function (v) { return v * 4.5; }, 0.82);
+      assert(near(s, 68), '得到 ' + s);
+    });
+
+    check('字号与采样', 'fitFontSize 未超宽保持原值', function () {
+      const s = fitFontSize(1920, 170, function (v) { return v * 2; }, 0.82);
+      assert(near(s, 170), '得到 ' + s);
+    });
+
+    check('字号与采样', 'boxSize 极小字号保底 20', function () {
+      const b = boxSize(0, 10);
+      assert(near(b.boxW, 32), 'boxW=' + b.boxW);
+      assert(near(b.boxH, 20), 'boxH=' + b.boxH);
+    });
+
+    check('字号与采样', 'sampleStep 窄屏触底 4', function () {
+      assert(near(sampleStep(375, 667), 4));
+    });
+
+    check('字号与采样', 'sampleStep 4K 放大到 18', function () {
+      assert(near(sampleStep(3840, 2160), 18));
+    });
+
+    check('目标分配', 'assignTargets 文字模式写入抖动目标', function () {
+      const ps = [makeParticle(), makeParticle()];
+      assignTargets(ps, [{ x: 100, y: 200 }], 'text', function () { return 0.75; });
+      assert(near(ps[0].tx, 100.5), 'tx=' + ps[0].tx);
+      assert(near(ps[0].ty, 200.5), 'ty=' + ps[0].ty);
+      assert(near(ps[1].tx, 100.5), 'tx2=' + ps[1].tx);
+    });
+
+    check('目标分配', 'assignTargets 空采样点清空目标', function () {
+      const ps = [makeParticle({ tx: 10, ty: 20 })];
+      assignTargets(ps, [], 'text');
+      assert(ps[0].tx === null && ps[0].ty === null);
+    });
+
+    check('目标分配', 'assignTargets 散开模式清空目标', function () {
+      const ps = [makeParticle({ tx: 5, ty: 5 })];
+      assignTargets(ps, [{ x: 1, y: 1 }], 'float');
+      assert(ps[0].tx === null && ps[0].ty === null);
+    });
+
+    check('单粒子物理', 'softPull 超阈值施加衰减与向心拉动', function () {
+      const p = makeParticle({ x: 520, y: 0, vx: -10, vy: 0, tx: 0, ty: 0 });
+      softPull(p, 420, { dt: 1, pullDecay: 0.9, pullStrength: 0.012 });
+      const expected = -10 * 0.9 - 100 * 0.012;
+      assert(near(p.vx, expected), 'vx=' + p.vx + ' 期望 ' + expected);
+    });
+
+    check('单粒子物理', 'softPull 恰在阈值不施加', function () {
+      const p = makeParticle({ x: 420, y: 0, vx: -10, vy: 0, tx: 0, ty: 0 });
+      softPull(p, 420, { dt: 1, pullDecay: 0.9, pullStrength: 0.012 });
+      assert(near(p.vx, -10), 'vx=' + p.vx);
+    });
+
+    check('单粒子物理', 'softPull 阈值外 1px 触发微弱回拉', function () {
+      const p = makeParticle({ x: 421, y: 0, vx: 0, vy: 0, tx: 0, ty: 0 });
+      softPull(p, 420, { dt: 1, pullDecay: 0.9, pullStrength: 0.012 });
+      assert(near(p.vx, -0.012), 'vx=' + p.vx);
+    });
+
+    check('单粒子物理', '阻尼系数满足时间可加性', function () {
+      assert(near(Math.pow(0.86, 0.5) * Math.pow(0.86, 0.5), Math.pow(0.86, 1), 1e-12));
+      assert(near(Math.pow(0.9, 0.5) * Math.pow(0.9, 0.5), Math.pow(0.9, 1), 1e-12));
+    });
+
+    check('单粒子物理', 'stepParticle 界内弹簧阻尼与积分', function () {
+      const p = makeParticle({ x: 100, y: 0, tx: 0, ty: 0 });
+      stepParticle(p, baseCfg());
+      assert(near(p.vx, -4.73), 'vx=' + p.vx);
+      assert(near(p.x, 95.27), 'x=' + p.x);
+    });
+
+    check('单粒子物理', 'stepParticle 大步长弹簧步长截断', function () {
+      const a = makeParticle({ x: 100, tx: 0, ty: 0 });
+      const b = makeParticle({ x: 100, tx: 0, ty: 0 });
+      const c1 = baseCfg();
+      const c2 = baseCfg();
+      c1.dt = 1;
+      c2.dt = 2.5;
+      stepParticle(a, c1);
+      stepParticle(b, c2);
+      assert(near(a.vx, b.vx), a.vx + ' vs ' + b.vx);
+    });
+
+    check('单粒子物理', 'stepParticle 散开模式保持漂移速度', function () {
+      const p = makeParticle({ x: 900, y: 900, vx: 2, vy: -1, bvx: 2, bvy: -1 });
+      const cfg = baseCfg();
+      cfg.mode = 'float';
+      stepParticle(p, cfg);
+      assert(near(p.vx, 2), 'vx=' + p.vx);
+      assert(near(p.vy, -1), 'vy=' + p.vy);
+    });
+
+    check('单粒子物理', 'stepParticle 文字模式空目标越界环绕', function () {
+      const p = makeParticle({ x: 1035, y: 500, vx: 1, vy: 0, bvx: 1, bvy: 0 });
+      const cfg = baseCfg();
+      cfg.mode = 'text';
+      stepParticle(p, cfg);
+      assert(near(p.x, -30), 'x=' + p.x);
+    });
+
+    check('单粒子物理', 'stepParticle 散开模式越界双向环绕', function () {
+      const p = makeParticle({ x: 1031, y: -31, vx: 0, vy: 0, bvx: 0, bvy: 0 });
+      const cfg = baseCfg();
+      cfg.W = 1000;
+      cfg.H = 800;
+      cfg.mode = 'float';
+      stepParticle(p, cfg);
+      assert(near(p.x, -30), 'x=' + p.x);
+      assert(near(p.y, 830), 'y=' + p.y);
+    });
+
+    check('单粒子物理', 'repulse 距离平方等于 0.5 时跳过', function () {
+      const f = repulse(100.5, 100.5, 100, 100, 140, 1.7);
+      assert(near(f.fx, 0));
+      assert(near(f.fy, 0));
+    });
+
+    check('单粒子物理', 'repulse 半半径处力为 0.85', function () {
+      const f = repulse(170, 100, 100, 100, 140, 1.7);
+      assert(near(f.fx, 0.85), 'fx=' + f.fx);
+      assert(near(f.fy, 0));
+    });
+
+    check('单粒子物理', 'repulse 半径边界无力', function () {
+      const f = repulse(240, 100, 100, 100, 140, 1.7);
+      assert(near(f.fx, 0));
+    });
+
+    check('单粒子物理', 'wavePush 中心重合不产生 NaN', function () {
+      const f = wavePush(200, 200, { x: 200, y: 200, r: 10, life: 1 }, 90, 3.4);
+      assert(Number.isFinite(f.fx) && Number.isFinite(f.fy));
+      assert(near(f.fx, 0) && near(f.fy, 0));
+    });
+
+    check('单粒子物理', 'wavePush 波前推力最大 3.4', function () {
+      const f = wavePush(250, 200, { x: 200, y: 200, r: 50, life: 1 }, 90, 3.4);
+      assert(near(f.fx, 3.4), 'fx=' + f.fx);
+      assert(near(f.fy, 0));
+    });
+
+    check('单粒子物理', 'wavePush 超出波宽无力', function () {
+      const f = wavePush(400, 200, { x: 200, y: 200, r: 50, life: 1 }, 90, 3.4);
+      assert(near(f.fx, 0));
+    });
+
+    check('单粒子物理', 'clampSpeed 等比压缩到上限', function () {
+      const c = clampSpeed(30, 40, 12);
+      assert(near(Math.hypot(c.vx, c.vy), 12));
+      assert(near(c.vx, 7.2), 'vx=' + c.vx);
+      assert(near(c.vy, 9.6), 'vy=' + c.vy);
+    });
+
+    check('单粒子物理', 'clampSpeed NaN 输入归零', function () {
+      const c = clampSpeed(NaN, 1, 12);
+      assert(near(c.vx, 0) && near(c.vy, 0));
+    });
+
+    check('单粒子物理', 'stepParticle NaN 坐标自愈到目标', function () {
+      const p = makeParticle({ x: NaN, y: NaN, tx: 320, ty: 240, vx: 5, vy: -3 });
+      stepParticle(p, baseCfg());
+      assert(near(p.x, 320), 'x=' + p.x);
+      assert(near(p.y, 240), 'y=' + p.y);
+      assert(near(p.vx, 0) && near(p.vy, 0));
+    });
+
+    check('单粒子物理', 'stepParticle Infinity 坐标自愈到视口中心', function () {
+      const p = makeParticle({ x: Infinity, y: -Infinity, vx: 4, vy: 4 });
+      const cfg = baseCfg();
+      cfg.mode = 'float';
+      stepParticle(p, cfg);
+      assert(near(p.x, 500), 'x=' + p.x);
+      assert(near(p.y, 500), 'y=' + p.y);
+      assert(near(p.vx, 0) && near(p.vy, 0));
+    });
+
+    check('全链路', '冲击波击飞后 500 帧内保持有界且无 NaN', function () {
+      const p = makeParticle({ x: 1200, y: 300, tx: 500, ty: 300, vx: 12, vy: -8 });
+      const cfg = baseCfg();
+      cfg.W = 1000;
+      cfg.H = 600;
+      for (let i = 0; i < 500; i++) {
+        stepParticle(p, cfg);
+      }
+      assert(Number.isFinite(p.x) && Number.isFinite(p.y));
+      assert(Number.isFinite(p.vx) && Number.isFinite(p.vy));
+      const d = Math.hypot(p.x - 500, p.y - 300);
+      assert(d < 400, 'dist=' + d);
+    });
+
+    check('全链路', '500 粒子随机长跑 200 帧无 NaN', function () {
+      const cfg = baseCfg();
+      const arr = [];
+      for (let i = 0; i < 500; i++) {
+        arr.push(makeParticle({
+          x: Math.random() * 1000,
+          y: Math.random() * 1000,
+          vx: (Math.random() - 0.5) * 20,
+          vy: (Math.random() - 0.5) * 20,
+          bvx: Math.random() - 0.5,
+          bvy: Math.random() - 0.5,
+          tx: Math.random() * 1000,
+          ty: Math.random() * 1000
+        }));
+      }
+      for (let f = 0; f < 200; f++) {
+        for (let i = 0; i < arr.length; i++) {
+          stepParticle(arr[i], cfg);
+        }
+      }
+      for (let i = 0; i < arr.length; i++) {
+        const p = arr[i];
+        assert(Number.isFinite(p.x) && Number.isFinite(p.y), '位置非法 @' + i);
+        assert(Number.isFinite(p.vx) && Number.isFinite(p.vy), '速度非法 @' + i);
+      }
+    });
+
+    return { rows: rows, pass: pass, fail: fail };
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      if (c === '&') return '&amp;';
+      if (c === '<') return '&lt;';
+      if (c === '>') return '&gt;';
+      if (c === '"') return '&quot;';
+      return '&#39;';
+    });
+  }
+
+  function renderTests(result) {
+    const body = document.getElementById('testBody');
+    const summary = document.getElementById('summary');
+    let html = '';
+    let lastGroup = '';
+    for (let i = 0; i < result.rows.length; i++) {
+      const row = result.rows[i];
+      if (row.group !== lastGroup) {
+        html += '<div class="group-label">' + escapeHtml(row.group) + '</div>';
+        lastGroup = row.group;
+      }
+      const cls = row.ok ? 'pass' : 'fail';
+      const tag = row.ok ? 'PASS' : 'FAIL';
+      const extra = row.ok ? '' : ' · ' + escapeHtml(row.msg);
+      html += '<div class="case ' + cls + '"><span class="tag">' + tag + '</span><span>' + escapeHtml(row.name) + extra + '</span></div>';
+    }
+    body.innerHTML = html;
+    summary.textContent = result.pass + ' / ' + (result.pass + result.fail);
+    summary.style.color = result.fail === 0 ? '#35f0a8' : '#ff6b8a';
+  }
+
+  resize();
+  requestAnimationFrame(loop);
+  renderTests(runAllTests());
+
+  document.getElementById('rerun').addEventListener('click', function () {
+    renderTests(runAllTests());
+  });
+
+  document.getElementById('collapseBtn').addEventListener('click', function () {
+    document.getElementById('panel').classList.toggle('collapsed');
+  });
+
+  if (window.innerWidth < 640) {
+    document.getElementById('panel').classList.add('collapsed');
+  }
+
+})();
+</script>
+</body>
+</html>
