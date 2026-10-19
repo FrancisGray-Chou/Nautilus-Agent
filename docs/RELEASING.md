@@ -15,7 +15,7 @@
 
 目标仓库为 [FrancisGray-Chou/Nautilus-Agent](https://github.com/FrancisGray-Chou/Nautilus-Agent)。本地已准备文档、版本元数据、发布检查、归档脚本、CI 和草稿工作流。最初的本地工作区没有提交记录；远程 `main` 已有 README 的历史，导入时应保留这些提交。发布状态以 GitHub 仓库中的提交、Actions 和 Releases 为准。
 
-工作区归档可以提前审阅，但其 `SOURCE-MANIFEST.json` 会标记尚未提交/不干净的状态。**正式上传的归档应在目标提交和标签确定后重新生成**。项目级许可证仍待作者决定，本次没有增加默认许可证。
+工作区归档可以提前审阅，但其 `SOURCE-MANIFEST.json` 会标记尚未提交/不干净的状态。**正式上传的归档应在目标提交和标签确定后重新生成**。项目级许可证仍待决定，本次没有增加默认许可证。
 
 ## 一条命令发布
 
