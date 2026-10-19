@@ -12,6 +12,8 @@ Nautilus 将 DeepSeek、OpenAI、Gemini 和 Claude 集成在同一个桌面界�
 
 ![Nautilus 桌面界面与 Claude 四个子模型的动态折叠菜单](docs/assets/claude.png)
 
+![示例演示Max专家模式](docs/nautilus-demo/assets/max-cyber-snake.gif)
+
 *界面来自离线 Swing 渲染测试，使用模拟数据，不代表真实模型回答。*
 
 ## 功能概览
