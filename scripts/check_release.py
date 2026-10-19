@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = (
-    "README.md", "Cargo.toml", "Cargo.lock", ".env.example", ".gitignore", "CHANGELOG.md",
+    "README.md", "Cargo.toml", "Cargo.lock", ".env.example", ".gitignore", "CHANGELOG.md", "更新内容.md",
     "desktop/README.md", "desktop/PRIVACY.md", "desktop/run.sh", "desktop/test.sh",
     "desktop/lib/README.md", "desktop/lib/LICENSE-commonmark.txt", "desktop/lib/SHA256SUMS",
 )
@@ -111,7 +111,8 @@ def validate(tag: str | None = None) -> list[Path]:
             raise ValueError("当前提交不是目标标签")
         if git("status", "--porcelain"):
             raise ValueError("发布标签检查要求干净工作区，请先提交或移走未提交改动")
-        tracked = {ROOT / name for name in git("ls-files").splitlines()}
+        # NUL-delimited paths preserve Unicode filenames without Git's quoted escapes.
+        tracked = {ROOT / name for name in git("ls-files", "-z").split("\0") if name}
         if tracked != allowed:
             raise ValueError("Git 跟踪文件与发布清单不同，请检查遗漏的源码或意外提交的文件")
     return files

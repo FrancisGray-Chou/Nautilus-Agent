@@ -24,14 +24,26 @@ public final class DesktopSmokeTest {
         AtomicReference<ChatPanel> holder = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> { ChatPanel panel = new ChatPanel(service); holder.set(panel); panel.connect(); });
         ChatPanel panel = holder.get();
-        waitUntil(panel, () -> "deepseek".equals(panel.selectedModelId()) && !panel.isBusy());
+        waitUntil(panel, () -> "deepseek-flash".equals(panel.selectedModelId()) && !panel.isBusy());
         Path previews = Path.of(args.length == 0 ? "build" : args[0]); Files.createDirectories(previews);
         render(panel, previews.resolve("preview-welcome.png"), 1240, 860);
+
+        SwingUtilities.invokeAndWait(() -> ((JButton) find(panel, "deepseek-toggle")).doClick());
+        waitUntil(panel, () -> !((ModelSelector) find(panel, "deepseek-models")).isAnimating());
+        render(panel, previews.resolve("preview-deepseek-expanded.png"), 1240, 860);
+        check(onEdt(() -> find(panel, "deepseek-models").getHeight() == 184), "DeepSeek expands to exactly two rows");
+        SwingUtilities.invokeAndWait(() -> ((JButton) find(panel, "deepseek-option-deepseek-pro")).doClick()); waitIdle(panel);
+        check(onEdt(() -> "deepseek-pro".equals(panel.selectedModelId())), "DeepSeek Pro selection reaches backend");
+        service.rejectSelection = true;
+        SwingUtilities.invokeAndWait(() -> panel.chooseModel("deepseek-flash")); waitIdle(panel);
+        check(onEdt(() -> ((ModelSelector) find(panel, "deepseek-models")).selectedModelId().equals("deepseek-pro")), "failed DeepSeek switch retains confirmed Pro");
+        service.rejectSelection = false;
+        SwingUtilities.invokeAndWait(() -> panel.chooseModel("deepseek-flash")); waitIdle(panel);
 
         service.rejectSelection = true;
         selectGemini(panel, "gemini-argon");
         waitUntil(panel, () -> !panel.isBusy());
-        check(onEdt(() -> "deepseek".equals(panel.selectedModelId())), "failed switch keeps previous model");
+        check(onEdt(() -> "deepseek-flash".equals(panel.selectedModelId())), "failed switch keeps previous model");
         check(onEdt(() -> ((GeminiSelector) find(panel, "gemini-models")).selectedModelId().equals("gemini-flash")), "failed dropdown selection restores confirmed preset");
         service.rejectSelection = false;
         SwingUtilities.invokeAndWait(panel::newConversation); waitIdle(panel);
@@ -40,6 +52,24 @@ public final class DesktopSmokeTest {
         selectGemini(panel, "gemini-flash"); waitIdle(panel);
         check(onEdt(() -> "gemini-flash".equals(panel.selectedModelId())), "switch succeeds");
 
+        SwingUtilities.invokeAndWait(() -> ((JButton) find(panel, "claude-toggle")).doClick());
+        waitUntil(panel, () -> !((ModelSelector) find(panel, "claude-models")).isAnimating());
+        render(panel, previews.resolve("preview-claude-expanded.png"), 1240, 860);
+        render(panel, previews.resolve("preview-claude-compact.png"), 1000, 720);
+        check(onEdt(() -> {
+            JScrollPane scroll = (JScrollPane) find(panel, "model-space");
+            return scroll.getViewport().getView().getWidth() == scroll.getViewport().getExtentSize().width;
+        }), "expanded sidebar tracks viewport width without clipping");
+        check(onEdt(() -> find(panel, "claude-models").getHeight() == 280), "Claude expands to all four rows");
+        SwingUtilities.invokeAndWait(() -> ((JButton) find(panel, "claude-option-claude-fable")).doClick()); waitIdle(panel);
+        check(onEdt(() -> "claude-fable".equals(panel.selectedModelId())), "Claude child reaches backend");
+        service.rejectSelection = true;
+        SwingUtilities.invokeAndWait(() -> panel.chooseModel("claude-sonnet")); waitIdle(panel);
+        check(onEdt(() -> ((ModelSelector) find(panel, "claude-models")).selectedModelId().equals("claude-fable")), "failed Claude switch preserves confirmed child");
+        service.rejectSelection = false;
+        selectGemini(panel, "gemini-flash"); waitIdle(panel);
+
+        SwingUtilities.invokeAndWait(panel::newConversation); waitIdle(panel);
         String unicode = "中文问题：\"Hello\"\n第二行 🌊";
         SwingUtilities.invokeAndWait(() -> panel.submitText(unicode)); waitIdle(panel);
         check(unicode.equals(service.lastMessage), "multiline Unicode input preserved");
@@ -55,11 +85,13 @@ public final class DesktopSmokeTest {
         SwingUtilities.invokeAndWait(() -> panel.submitText("慢速回复"));
         check(onEdt(panel::isBusy), "request is pending without blocking the EDT");
         check(onEdt(() -> !find(panel, "gemini-models").isEnabled()), "dropdown disabled during a request");
+        check(onEdt(() -> !find(panel, "claude-models").isEnabled()), "Claude dropdown disabled during a request");
+        check(onEdt(() -> !find(panel, "deepseek-models").isEnabled()), "DeepSeek dropdown disabled during a request");
         SwingUtilities.invokeAndWait(() -> panel.chooseModel("openai"));
         check(onEdt(() -> "gemini-flash".equals(panel.selectedModelId())), "switch cannot race an in-flight request");
         service.release.countDown(); waitIdle(panel); service.release = null;
         SwingUtilities.invokeAndWait(panel::newConversation); waitIdle(panel);
-        check(onEdt(() -> panel.messageCount() == 0) && service.resets == 2, "new chat resets UI and backend");
+        check(onEdt(() -> panel.messageCount() == 0) && service.resets == 3, "new chat resets UI and backend");
 
         SwingUtilities.invokeAndWait(() -> panel.submitText("帮我解释 Rust 的所有权，给一个简单例子。")); waitIdle(panel);
         render(panel, previews.resolve("preview-chat.png"), 1240, 860);
@@ -163,15 +195,19 @@ public final class DesktopSmokeTest {
         volatile int resets;
         volatile int chatCalls;
         volatile CountDownLatch release;
-        private String selected = "deepseek";
+        private String selected = "deepseek-flash";
         private static void background() { check(!SwingUtilities.isEventDispatchThread(), "backend ran on EDT"); }
         @Override public List<Model> initialize() {
             background();
-            return List.of(new Model("deepseek", "DeepSeek", "通用对话", "DeepSeek", true),
+            java.util.ArrayList<Model> catalog = new java.util.ArrayList<>(List.of(new Model("deepseek-flash", "DeepSeek V4.1-Flash", "Flash 模型", "DeepSeek", true),
+                    new Model("deepseek-pro", "DeepSeek V4-Pro", "Pro 模型", "DeepSeek", true),
                     new Model("openai", "OpenAI", "通用对话", "OpenAI", true),
                     new Model("gemini-flash", "Gemini 3.8 Flash", "Extended Thinking · Search", "Gemini", true),
                     new Model("gemini-argon", "Gemini 4 Argon", "深度思考 · Search", "Gemini", true),
-                    new Model("gemini-auto", "Gemini Auto", "根据任务选择 Flash / Argon", "Gemini", true));
+                    new Model("gemini-auto", "Gemini Auto", "根据任务选择 Flash / Argon", "Gemini", true)));
+            catalog.addAll(ClaudeModels.options(true));
+            catalog.add(new Model("mixture", "Mixture混合模式", "自由组队 · 分工协作", "Mixture", true));
+            return catalog;
         }
         @Override public Selection select(String id) throws IOException {
             background(); if (rejectSelection) throw new IOException("测试：目标模型尚未配置密钥");
@@ -189,8 +225,8 @@ public final class DesktopSmokeTest {
             return new Reply("可以把所有权理解为：每个值都有一位负责管理它的主人。\n\n当变量离开作用域时，Rust 会自动释放对应的资源，因此通常不需要手动释放内存。\n\n例如，将 String 从 a 赋值给 b，会把所有权交给 b。此后继续使用 a，编译器会提醒你这个值已经被移动。\n\n想在不转移所有权的情况下读取它，可以使用借用：&a。", selected.startsWith("gemini") ? "gemini-3.8-flash" : "deepseek-flash", selected.startsWith("gemini") ? "Gemini" : "DeepSeek");
         }
         @Override public void reset() { background(); resets++; }
-        @Override public Credentials credentials() { background(); return new Credentials("/test-account/Nautilus/.env", "test-account", true, true, true); }
-        @Override public Credentials saveCredentials(Map<String, String> updates, boolean acknowledged) { background(); return new Credentials("/test-account/Nautilus/.env", "test-account", true, true, true); }
+        @Override public Credentials credentials() { background(); return new Credentials("/test-account/Nautilus/.env", "test-account", true, true, true, true); }
+        @Override public Credentials saveCredentials(Map<String, String> updates, boolean acknowledged) { background(); return new Credentials("/test-account/Nautilus/.env", "test-account", true, true, true, true); }
         @Override public Credentials deleteCredentials(String provider) { background(); return new Credentials("/test-account/Nautilus/.env", "test-account", false, false, false); }
         @Override public void close() {}
     }

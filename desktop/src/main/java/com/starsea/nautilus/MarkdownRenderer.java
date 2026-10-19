@@ -148,8 +148,8 @@ final class MarkdownRenderer {
             html.tag("/p");
             if (block != null && block.hasContext()) {
                 html.tag("p", Map.of("class", "note"));
-                if (block.edited()) html.text("已修改 · 原回复保留。 ");
-                if (!block.note.isBlank()) html.text("批注：" + block.note);
+                if (block.edited()) html.text(I18n.t("已修改 · 原回复保留。 "));
+                if (!block.note.isBlank()) html.text(I18n.t("批注：") + block.note);
                 html.tag("/p");
             }
             html.tag("/div"); html.line();

@@ -11,7 +11,12 @@ use std::{
 };
 
 pub const NOTICE_VERSION: &str = "local-plaintext-v1";
-const KEYS: [&str; 3] = ["DEEPSEEK_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"];
+const KEYS: [&str; 4] = [
+    "DEEPSEEK_API_KEY",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "ANTHROPIC_API_KEY",
+];
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 pub struct CredentialStore {
@@ -77,6 +82,7 @@ impl CredentialStore {
             ModelProvider::DeepSeek => KEYS[0],
             ModelProvider::OpenAI => KEYS[1],
             ModelProvider::Gemini => KEYS[2],
+            ModelProvider::Claude => KEYS[3],
         };
         self.keys.get(name).map(String::as_str).ok_or_else(|| {
             format!(
@@ -90,11 +96,12 @@ impl CredentialStore {
         json!({"storage_path": self.directory.join(".env").to_string_lossy(),
             "account": std::env::var("USER").unwrap_or_else(|_| "当前操作系统用户".into()),
             "deepseek": self.keys.contains_key(KEYS[0]), "openai": self.keys.contains_key(KEYS[1]), "gemini": self.keys.contains_key(KEYS[2]),
+            "claude": self.keys.contains_key(KEYS[3]),
             "notice_version": NOTICE_VERSION, "storage": "plaintext"})
     }
 
     /// None 保持原值；空字符串删除该平台密钥。先校验全部更新，再原子写入。
-    pub fn save(&mut self, updates: [Option<String>; 3], acknowledged: bool) -> Result<(), String> {
+    pub fn save(&mut self, updates: [Option<String>; 4], acknowledged: bool) -> Result<(), String> {
         if !acknowledged {
             return Err("保存前请确认已阅读明文存储和第三方调用说明".into());
         }
@@ -127,6 +134,9 @@ impl CredentialStore {
             }
             "gemini" => {
                 next.remove(KEYS[2]);
+            }
+            "claude" => {
+                next.remove(KEYS[3]);
             }
             _ => return Err("未知平台".into()),
         }
@@ -249,7 +259,10 @@ mod tests {
         let mut store = CredentialStore::open(directory.clone()).unwrap();
         assert!(
             store
-                .save([Some("test-key-$literal#suffix".into()), None, None], false)
+                .save(
+                    [Some("test-key-$literal#suffix".into()), None, None, None],
+                    false
+                )
                 .is_err()
         );
         assert!(!directory.exists());
@@ -259,6 +272,7 @@ mod tests {
                     Some("test-key-$literal#suffix".into()),
                     None,
                     Some("gemini-test".into()),
+                    Some("claude-test".into()),
                 ],
                 true,
             )
@@ -285,10 +299,16 @@ mod tests {
             loaded.key(ModelProvider::DeepSeek).unwrap(),
             "test-key-$literal#suffix"
         );
+        assert_eq!(loaded.key(ModelProvider::Claude).unwrap(), "claude-test");
+        assert_eq!(loaded.status()["claude"], true);
+        assert_eq!(loaded.redact("claude-test"), "[REDACTED]");
         assert!(!loaded.status().to_string().contains("gemini-test"));
         assert_eq!(loaded.redact("error gemini-test"), "error [REDACTED]");
         store.delete("deepseek").unwrap();
         assert!(store.key(ModelProvider::DeepSeek).is_err());
+        assert!(store.key(ModelProvider::Gemini).is_ok());
+        store.delete("claude").unwrap();
+        assert!(store.key(ModelProvider::Claude).is_err());
         assert!(store.key(ModelProvider::Gemini).is_ok());
         store.delete("all").unwrap();
         assert!(!directory.join(".env").exists());
@@ -300,11 +320,11 @@ mod tests {
         let first = temporary();
         let second = temporary();
         let mut a = CredentialStore::open(first.clone()).unwrap();
-        a.save([Some("account-a".into()), None, None], true)
+        a.save([Some("account-a".into()), None, None, None], true)
             .unwrap();
         assert!(
             a.save(
-                [Some("bad\nGEMINI_API_KEY=inject".into()), None, None],
+                [Some("bad\nGEMINI_API_KEY=inject".into()), None, None, None],
                 true
             )
             .is_err()

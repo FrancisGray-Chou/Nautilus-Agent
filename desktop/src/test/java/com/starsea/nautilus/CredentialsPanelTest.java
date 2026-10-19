@@ -25,7 +25,7 @@ public final class CredentialsPanelTest {
             });
             List<Component> components = children(panel);
             List<JPasswordField> fields = components.stream().filter(JPasswordField.class::isInstance).map(JPasswordField.class::cast).toList();
-            check(fields.size() == 3, "three independent platform fields");
+            check(fields.size() == 4, "four independent platform fields");
             check(fields.stream().allMatch(field -> field.getPassword().length == 0 && field.getEchoChar() != 0), "keys are masked and never prefilled");
             JButton save = components.stream().filter(JButton.class::isInstance).map(JButton.class::cast).filter(button -> button.getText().equals("保存密钥")).findFirst().orElseThrow();
             JCheckBox acknowledgement = components.stream().filter(JCheckBox.class::isInstance).map(JCheckBox.class::cast).findFirst().orElseThrow();
@@ -33,7 +33,9 @@ public final class CredentialsPanelTest {
             acknowledgement.doClick(); check(save.isEnabled(), "acknowledged save enabled"); save.doClick();
             check("fake-test-key".equals(saved.get().get("deepseek")) && saved.get().size() == 1, "only edited keys sent");
             check(fields.stream().allMatch(field -> field.getPassword().length == 0), "sensitive fields cleared after submission");
-            panel.apply(new ChatService.Credentials(empty.storagePath(), "demo", true, false, true));
+            fields.get(3).setText("test-claude-only"); acknowledgement.doClick(); save.doClick();
+            check(saved.get().equals(Map.of("claude", "test-claude-only")), "Claude key saves independently");
+            panel.apply(new ChatService.Credentials(empty.storagePath(), "demo", false, false, false, true));
             JButton removeAll = components.stream().filter(JButton.class::isInstance).map(JButton.class::cast).filter(button -> button.getText().equals("删除全部本机密钥")).findFirst().orElseThrow();
             panel.setWorking(true); check(!removeAll.isEnabled(), "edits disabled during save");
             panel.setWorking(false); removeAll.doClick(); check("all".equals(deleted.get()), "delete all action exposed");

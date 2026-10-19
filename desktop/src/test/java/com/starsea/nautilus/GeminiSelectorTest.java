@@ -57,6 +57,8 @@ public final class GeminiSelectorTest {
             button(selector, "gemini-toggle").doClick(0);
             selector.removeNotify();
             check(!selector.isAnimating() && !selector.isExpanded(), "detaching stops timers and releases outside listener");
+            button(selector, "gemini-toggle").getModel().setRollover(true);
+            check(!selector.isAnimating(), "late rollover events cannot restart a detached selector");
         });
         System.out.println("PASS: smooth Gemini expansion/reversal, keyboard/outside dismissal, selection confirmation and timer lifecycle");
     }

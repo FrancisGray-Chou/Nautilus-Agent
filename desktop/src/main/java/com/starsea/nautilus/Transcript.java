@@ -13,6 +13,11 @@ import javax.swing.text.JTextComponent;
 @SuppressWarnings("serial")
 final class Transcript extends JPanel implements Scrollable {
     private final List<MessageCard> messages = new ArrayList<>();
+    private final List<JComponent> timeline = new ArrayList<>();
+    private ProgressBubble pending;
+    void beginProgress(){pending=new ProgressBubble();timeline.add(pending);add(pending);revalidate();repaint();}
+    void progress(ChatService.Progress event){if(pending!=null)pending.update(event);}
+    void finishProgress(boolean success){if(pending!=null){pending.finish(success);pending=null;}revalidate();repaint();}
     private final CodeContext codeContext = new CodeContext();
     private final Consumer<String> suggest, clipboard;
     private final Runnable contextChanged;
@@ -27,9 +32,9 @@ final class Transcript extends JPanel implements Scrollable {
 
     void addMessage(String role, String text, boolean user, boolean error) {
         MessageCard card = new MessageCard(role, text, user, error);
-        messages.add(card); add(card); revalidate(); repaint();
+        messages.add(card); timeline.add(card); add(card); revalidate(); repaint();
     }
-    void clear() { messages.clear(); codeContext.clear(); suggest.accept(""); contextChanged.run(); removeAll(); revalidate(); repaint(); }
+    void clear() { finishProgress(false);timeline.clear();messages.clear(); codeContext.clear(); suggest.accept(""); contextChanged.run(); removeAll(); revalidate(); repaint(); }
     int messageCount() { return messages.size(); }
     CodeContext.Prepared prepare(String prompt) { return codeContext.prepare(prompt); }
     List<CodeContext.Block> codeBlocks() { return codeContext.blocks(); }
@@ -43,9 +48,10 @@ final class Transcript extends JPanel implements Scrollable {
     }
     private int contentHeight(int width, boolean layout) {
         int y = 24;
-        for (MessageCard card : messages) {
-            int w = widthFor(card, width), h = card.heightFor(w);
-            if (layout) card.setBounds(card.user ? width - w - 28 : 28, y, w, h);
+        for (JComponent item : timeline) {
+            int w = item instanceof MessageCard card ? widthFor(card,width) : Math.max(120,Math.min(820,width-56));
+            int h = item instanceof MessageCard card ? card.heightFor(w) : ((ProgressBubble)item).heightFor(w);
+            if (layout) item.setBounds(item instanceof MessageCard card && card.user ? width - w - 28 : 28,y,w,h);
             y += h + 20;
         }
         return y + 12;
@@ -79,19 +85,19 @@ final class Transcript extends JPanel implements Scrollable {
             JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0)); actions.setOpaque(false);
             actions.add(Theme.label(LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), 10, Theme.MUTED, false));
             Theme.Button copy = smallButton("复制全文"); copy.setName("copy-reply");
-            copy.setToolTipText("复制原始 Markdown 全文；代码块按钮复制当前编辑版本");
-            copy.addActionListener(event -> copyText(text));
+            I18n.tooltip(copy, "复制原始 Markdown 全文；代码块按钮复制当前编辑版本");
+            copy.addActionListener(event -> {if(copyText(text))copy.feedback("已复制 ✓");});
             actions.add(copy); header.add(actions, BorderLayout.EAST); add(header, BorderLayout.NORTH);
             if (!user && !error) {
                 List<CodeContext.Block> blocks = codeContext.register(text);
                 MarkdownPane markdown = new MarkdownPane(text, blocks, this::codeAction); body = markdown;
                 Theme.Button like = smallButton("点赞"); like.setName("like-reply");
-                like.setToolTipText("作为本轮偏好，生成可编辑的后续问题建议；不会自动发送");
+                I18n.tooltip(like, "作为本轮偏好，生成可编辑的后续问题建议；不会自动发送");
                 like.addActionListener(event -> {
                     liked = !liked; like.setText(liked ? "已点赞 ✓" : "点赞");
                     String suggestion = blocks.isEmpty() ? "请沿着刚才的思路，给出一个具体示例，并说明注意事项。"
                             : "请结合 " + blocks.get(blocks.size() - 1).id + " 的代码和批注，解释关键实现，并补充边界情况与测试示例。";
-                    suggest.accept(liked ? suggestion : "");
+                    suggest.accept(liked ? I18n.t(suggestion) : "");
                     feedback.setText(liked ? "已生成下一句建议 · 点击输入区的建议后可编辑" : "已取消点赞");
                 });
                 actions.add(like);
@@ -109,23 +115,23 @@ final class Transcript extends JPanel implements Scrollable {
             Theme.Button button = new Theme.Button(label, false); button.setFont(Theme.font(11, false));
             button.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8)); return button;
         }
-        private void copyText(String value) {
-            try { clipboard.accept(value); feedback.setText("已复制到剪贴板"); }
-            catch (RuntimeException ex) { feedback.setText("剪贴板不可用，请选中文本后复制"); }
+        private boolean copyText(String value) {
+            try { clipboard.accept(value); feedback.setText("已复制到剪贴板"); return true; }
+            catch (RuntimeException ex) { feedback.setText("剪贴板不可用，请选中文本后复制"); return false; }
         }
-        private void codeAction(CodeContext.Block block, String action) {
-            if (action.equals("复制")) { copyText(block.code); return; }
-            if (GraphicsEnvironment.isHeadless()) return;
+        private boolean codeAction(CodeContext.Block block, String action) {
+            if (action.equals("复制")) return copyText(block.code);
+            if (GraphicsEnvironment.isHeadless()) return false;
             CodeEditorPanel editor = new CodeEditorPanel(block, action.equals("批注"));
-            Object[] options = {"保存", "恢复原代码并清空批注", "取消"};
-            int choice = JOptionPane.showOptionDialog(this, editor, block.id + " · " + action,
+            Object[] options = {I18n.t("保存"), I18n.t("恢复原代码并清空批注"), I18n.t("取消")};
+            int choice = JOptionPane.showOptionDialog(this, editor, block.id + " · " + I18n.t(action),
                     JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
             if (choice == 0) editor.apply(block);
             else if (choice == 1) { block.code = block.original; block.note = ""; }
-            else return;
+            else return false;
             ((MarkdownPane) body).refresh(); contextChanged.run();
             feedback.setText(block.hasContext() ? block.id + " 已保存 · 相关追问时附带；也可直接在问题中写 " + block.id : block.id + " 已恢复原始版本");
-            Transcript.this.revalidate(); Transcript.this.repaint();
+            Transcript.this.revalidate(); Transcript.this.repaint(); return true;
         }
         int heightFor(int width) {
             if (body instanceof MarkdownPane markdown) return Math.max(104, markdown.heightFor(width - 36) + 88);

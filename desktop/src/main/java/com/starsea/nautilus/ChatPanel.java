@@ -16,11 +16,13 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
 @SuppressWarnings("serial")
-final class ChatPanel extends JPanel {
+final class ChatPanel extends JPanel implements I18n.Localized {
     private final ChatService backend;
     private final List<ModelCard> models = new ArrayList<>();
     private List<ChatService.Model> catalog = List.of();
     private GeminiSelector gemini;
+    private ModelSelector deepseek;
+    private ModelSelector claude;
     private final JPanel modelList = new JPanel();
     private final Transcript transcript = new Transcript(this::offerSuggestion, this::refreshContextPreview);
     private final JScrollPane history = new JScrollPane(transcript);
@@ -31,17 +33,18 @@ final class ChatPanel extends JPanel {
     private final JTextArea suggestionText = new JTextArea();
     private final JPanel contextPreview = new JPanel(new BorderLayout(8, 0));
     private final JLabel contextLabel = Theme.label("", 11, Theme.ACCENT, false);
-    private final JCheckBox includeContext = new JCheckBox("附带", true);
+    private final JCheckBox includeContext = new I18n.CheckBox("附带", true);
     private String nextSuggestion = "";
     private final Theme.Button send = new Theme.Button("发送  ↑", true);
     private final Theme.Button newChat = new Theme.Button("＋  新对话", false);
-    private final Theme.Button keySettings = new Theme.Button("API 密钥与隐私", false);
+    private final SettingsMenu settings;
     private final JLabel title = Theme.label("开始一段新对话", 20, Theme.TEXT, true);
     private final JLabel subtitle = Theme.label("选择模型，带着你的问题出发", 12, Theme.MUTED, false);
     private final JLabel status = Theme.label("正在准备…", 11, Theme.MUTED, false);
     private final JProgressBar progress = new JProgressBar();
     private String selectedId;
-    private boolean connected, busy;
+    private ChatService.MixtureTeam mixtureTeam;
+    private boolean connected, busy, closed;
     private JDialog credentialDialog;
     private CredentialsPanel credentialPanel;
     private ChatService.Credentials credentials;
@@ -50,6 +53,7 @@ final class ChatPanel extends JPanel {
 
     ChatPanel(ChatService backend) {
         this.backend = backend;
+        settings = new SettingsMenu(this::openCredentials, this::changeLanguage, this::exitApplication);
         setLayout(new BorderLayout()); setBackground(Theme.BG);
         add(sidebar(), BorderLayout.WEST);
         JPanel main = new JPanel(new BorderLayout()); main.setBackground(Theme.BG);
@@ -85,15 +89,14 @@ final class ChatPanel extends JPanel {
         modelList.setOpaque(false); modelList.setLayout(new BoxLayout(modelList, BoxLayout.Y_AXIS));
         modelList.setAlignmentX(LEFT_ALIGNMENT);
         side.add(top, BorderLayout.NORTH);
-        JPanel modelSpace = new JPanel(new BorderLayout()); modelSpace.setOpaque(false); modelSpace.add(modelList, BorderLayout.NORTH);
+        JPanel modelSpace = new Theme.ScrollBody(new BorderLayout()); modelSpace.add(modelList, BorderLayout.NORTH);
         JScrollPane modelScroll = new JScrollPane(modelSpace); Theme.scroll(modelScroll);
         modelScroll.setName("model-space"); modelScroll.setOpaque(false); modelScroll.getViewport().setBackground(Theme.SIDE);
         modelScroll.setBorder(BorderFactory.createEmptyBorder(0, 0, 14, 0)); side.add(modelScroll, BorderLayout.CENTER);
         JPanel bottom = new JPanel(); bottom.setLayout(new BoxLayout(bottom, BoxLayout.Y_AXIS)); bottom.setOpaque(false);
-        keySettings.setAlignmentX(LEFT_ALIGNMENT); keySettings.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
-        keySettings.addActionListener(event -> openCredentials()); bottom.add(keySettings);
+        bottom.add(settings);
         bottom.add(Box.createVerticalStrut(10));
-        bottom.add(Theme.label("TEXT CONVERSATIONS", 9, new Color(0x687792), true));
+        bottom.add(Theme.label("文字对话", 9, new Color(0x687792), true));
         bottom.add(Theme.label("StarSea Community", 11, new Color(0x687792), false));
         side.add(bottom, BorderLayout.SOUTH); return side;
     }
@@ -117,7 +120,7 @@ final class ChatPanel extends JPanel {
         JPanel hero = new JPanel(); hero.setOpaque(false); hero.setLayout(new BoxLayout(hero, BoxLayout.Y_AXIS));
         Theme.Logo logo = new Theme.Logo(72); logo.setMaximumSize(new Dimension(72, 72)); logo.setAlignmentX(CENTER_ALIGNMENT);
         hero.add(logo); hero.add(Box.createVerticalStrut(24));
-        JLabel eyebrow = Theme.label("A LITTLE CURIOSITY GOES A LONG WAY", 10, Theme.MINT, true);
+        JLabel eyebrow = Theme.label("好奇心，让想法走得更远", 10, Theme.MINT, true);
         eyebrow.setAlignmentX(CENTER_ALIGNMENT); hero.add(eyebrow); hero.add(Box.createVerticalStrut(14));
         JLabel heading = Theme.label("把想法，聊清楚。", 34, Theme.TEXT, true); heading.setAlignmentX(CENTER_ALIGNMENT); hero.add(heading);
         hero.add(Box.createVerticalStrut(14));
@@ -127,7 +130,7 @@ final class ChatPanel extends JPanel {
         String[][] starters = {{"读懂一段代码", "请帮我解释下面这段代码的逻辑：\n"}, {"梳理一个想法", "我想和你一起梳理一个想法：\n"}, {"制定学习计划", "请帮我制定一份学习计划：\n"}};
         for (String[] starter : starters) {
             Theme.Button chip = new Theme.Button(starter[0], false);
-            chip.addActionListener(event -> { composer.setText(starter[1]); composer.requestFocusInWindow(); });
+            chip.addActionListener(event -> { composer.setText(I18n.t(starter[1])); composer.requestFocusInWindow(); });
             suggestions.add(chip);
         }
         hero.add(suggestions); outer.add(hero); return outer;
@@ -188,17 +191,42 @@ final class ChatPanel extends JPanel {
     }
 
     void connect() {
+        backend.setProgressListener(event -> SwingUtilities.invokeLater(() -> {
+            if(closed)return;
+            JScrollBar bar=history.getVerticalScrollBar();boolean follow=bar.getValue()+bar.getVisibleAmount()>=bar.getMaximum()-64;
+            transcript.progress(event);if(follow)scrollToBottom();
+        }));
+        backend.setNoticeListener(message -> SwingUtilities.invokeLater(() -> {
+            if (closed) return;
+            transcript.addMessage("Mixture 调度", message, false, false);
+            contentLayout.show(content, "history"); setStatus(message, false); scrollToBottom();
+        }));
         runAsync("正在准备模型…", () -> new Startup(backend.initialize(), backend.credentials()), startup -> {
             connected = true;
             credentials = startup.credentials();
             catalog = startup.models();
+            List<ChatService.Model> deepseekPresets = catalog.stream().filter(model -> model.id().startsWith("deepseek-")).toList();
+            if (!deepseekPresets.isEmpty()) {
+                deepseek = new ModelSelector("DeepSeek", "deepseek", deepseekPresets, this::chooseModel);
+                modelList.add(deepseek); modelList.add(Box.createVerticalStrut(8));
+            }
             for (ChatService.Model option : catalog) {
-                if (option.id().startsWith("gemini-")) continue;
+                if (option.id().startsWith("gemini-") || option.id().startsWith("deepseek-") || option.id().startsWith("claude-") || option.id().equals("mixture")) continue;
                 ModelCard card = new ModelCard(option, () -> chooseModel(option.id()));
                 models.add(card); modelList.add(card); modelList.add(Box.createVerticalStrut(8));
             }
             List<ChatService.Model> presets = catalog.stream().filter(model -> model.id().startsWith("gemini-")).toList();
             if (!presets.isEmpty()) { gemini = new GeminiSelector(presets, this::chooseModel); modelList.add(gemini); }
+            List<ChatService.Model> claudePresets = catalog.stream().filter(model -> model.id().startsWith("claude-")).toList();
+            if (!claudePresets.isEmpty()) {
+                modelList.add(Box.createVerticalStrut(8));
+                claude = new ModelSelector("Claude", "claude", claudePresets, this::chooseModel); modelList.add(claude);
+            }
+            catalog.stream().filter(model -> model.id().equals("mixture")).findFirst().ifPresent(option -> {
+                modelList.add(Box.createVerticalStrut(12));
+                ModelCard card = new ModelCard(option, () -> chooseModel(option.id()));
+                models.add(card); modelList.add(card);
+            });
             modelList.revalidate(); modelList.repaint(); setBusy(false);
             if (GraphicsEnvironment.isHeadless()) selectConfiguredModel();
             else showCredentials();
@@ -207,9 +235,25 @@ final class ChatPanel extends JPanel {
 
     private void selectConfiguredModel() {
         if (!connected || busy) return;
-        String choice = credentials.deepseek() ? "deepseek" : credentials.openai() ? "openai" : credentials.gemini() ? "gemini-flash" : null;
+        String choice = credentials.deepseek() ? (deepseek == null ? "deepseek" : "deepseek-flash") : credentials.openai() ? "openai" : credentials.gemini() ? "gemini-flash" : credentials.claude() ? "claude-opus" : null;
         if (choice != null) chooseModel(choice);
         else { setStatus("请在 API 密钥与隐私中配置一个平台", false); setBusy(false); }
+    }
+
+    @Override public void refreshLanguage() {
+        suggestionText.setText(nextSuggestion.isEmpty() ? "" : I18n.t("基于点赞的后续建议（可编辑）：") + nextSuggestion);
+        composer.repaint();
+    }
+
+    private void changeLanguage(I18n.Language language) {
+        try { I18n.change(language, this); }
+        catch (java.io.IOException | SecurityException ex) { setStatus("语言偏好保存失败，本次切换仍有效", true); }
+    }
+
+    private void exitApplication() {
+        Window window = SwingUtilities.getWindowAncestor(this);
+        close();
+        if (window != null) window.dispose();
     }
 
     private void openCredentials() {
@@ -220,7 +264,7 @@ final class ChatPanel extends JPanel {
     private void showCredentials() {
         if (GraphicsEnvironment.isHeadless()) return;
         credentialsChanged = false;
-        credentialDialog = new JDialog(SwingUtilities.getWindowAncestor(this), "API 密钥与隐私", Dialog.ModalityType.APPLICATION_MODAL);
+        credentialDialog = new JDialog(SwingUtilities.getWindowAncestor(this), I18n.t("API 密钥与隐私"), Dialog.ModalityType.APPLICATION_MODAL);
         credentialPanel = new CredentialsPanel(credentials, new CredentialsPanel.Actions() {
             @Override public void save(java.util.Map<String, String> keys) { credentialTask(() -> backend.saveCredentials(keys, true)); }
             @Override public void delete(String provider) { credentialTask(() -> backend.deleteCredentials(provider)); }
@@ -251,6 +295,8 @@ final class ChatPanel extends JPanel {
                     transcript.clear(); composer.setText(""); contentLayout.show(content, "welcome");
                     models.forEach(card -> card.active(false)); title.setText("开始一段新对话"); subtitle.setText("密钥配置已更新，旧会话已清空");
                     if (gemini != null) gemini.sync(null);
+                    if (deepseek != null) deepseek.sync(null);
+                    if (claude != null) claude.sync(null);
                     panel.apply(credentials); panel.message("配置已更新；关闭此窗口后即可使用已配置的模型。", false);
                 } catch (InterruptedException ex) { panel.message("操作被中断，请重试", true); }
                 catch (ExecutionException ex) { panel.message(ex.getCause().getMessage(), true); }
@@ -264,14 +310,24 @@ final class ChatPanel extends JPanel {
 
     void chooseModel(String id) {
         if (busy || !connected) return;
-        runAsync("正在切换模型…", () -> backend.select(id), selection -> {
+        if ("mixture".equals(id) && !GraphicsEnvironment.isHeadless()) {
+            MixturePanel.show(this, credentials, mixtureTeam, team -> {
+                runAsync("正在组建协作团队…", () -> backend.configureMixture(team), selection -> {
+                    mixtureTeam = team; applySelection(selection);
+                });
+            });
+            return;
+        }
+        runAsync("正在切换模型…", () -> backend.select(id), this::applySelection);
+    }
+
+    private void applySelection(ChatService.Selection selection) {
             selectedId = selection.modelId();
             for (ModelCard card : models) card.active(card.option.id().equals(selectedId));
             String name = catalog.stream().filter(option -> option.id().equals(selectedId)).map(ChatService.Model::name).findFirst().orElse(selection.provider());
             title.setText(name);
-            subtitle.setText(selection.search() ? "思考模式 + Google Search · 切换时保留上下文" : selection.model() + " · 切换时保留上下文");
+            subtitle.setText(selection.search() ? "思考模式 + Google Search · 切换时保留上下文" : selection.model() + ("mixture".equals(selectedId) ? " · 与单模型会话独立" : " · 切换时保留上下文"));
             setStatus("就绪", false); setBusy(false); composer.requestFocusInWindow();
-        });
     }
 
     void submitText(String text) { composer.setText(text); submit(); }
@@ -282,7 +338,9 @@ final class ChatPanel extends JPanel {
         CodeContext.Prepared prepared = includeContext.isSelected() ? transcript.prepare(message) : new CodeContext.Prepared(message, "");
         transcript.addMessage(prepared.description().isEmpty() ? "你" : "你 · 附带代码批注", message, true, false); contentLayout.show(content, "history");
         composer.setText(""); offerSuggestion(""); scrollToBottom();
+        transcript.beginProgress();
         runAsync("正在思考…", () -> backend.chat(prepared.message()), reply -> {
+            transcript.finishProgress(reply.complete());
             transcript.addMessage(reply.provider() + "  /  " + reply.model(), reply.text(), false, false);
             setStatus("就绪 · " + reply.model(), false); scrollToBottom(); composer.requestFocusInWindow();
         });
@@ -302,18 +360,20 @@ final class ChatPanel extends JPanel {
         new SwingWorker<T, Void>() {
             @Override protected T doInBackground() throws Exception { return task.call(); }
             @Override protected void done() {
+                if (closed) return;
                 setBusy(false);
                 try { success.accept(get()); }
                 catch (InterruptedException ex) { showError("操作被中断，请重试"); }
                 catch (ExecutionException ex) {
                     Throwable cause = ex.getCause(); showError(cause.getMessage() == null ? "操作失败，请重试" : cause.getMessage());
                 }
-                finally { if (gemini != null) gemini.sync(selectedId); }
+                finally { if (gemini != null) gemini.sync(selectedId); if (deepseek != null) deepseek.sync(selectedId); if (claude != null) claude.sync(selectedId); }
             }
         }.execute();
     }
 
     private void showError(String error) {
+        transcript.finishProgress(false);
         transcript.addMessage("请求未完成", error, false, true); contentLayout.show(content, "history");
         setStatus("请求未完成 · 可以继续重试或切换模型", true); scrollToBottom(); composer.requestFocusInWindow();
     }
@@ -321,19 +381,21 @@ final class ChatPanel extends JPanel {
     private void setBusy(boolean value) {
         busy = value; progress.setVisible(value); progress.setIndeterminate(value);
         send.setEnabled(connected && selectedId != null && !value); newChat.setEnabled(connected && !value);
-        keySettings.setEnabled(connected && !value);
+        settings.credentialsEnabled(connected && !value);
         for (ModelCard card : models) card.setEnabled(connected && !value);
         if (gemini != null) gemini.working(!connected || value);
+        if (deepseek != null) deepseek.working(!connected || value);
+        if (claude != null) claude.working(!connected || value);
     }
     private void offerSuggestion(String text) {
         nextSuggestion = text;
-        suggestionText.setText(text.isEmpty() ? "" : "基于点赞的后续建议（可编辑）：" + text);
+        suggestionText.setText(text.isEmpty() ? "" : I18n.t("基于点赞的后续建议（可编辑）：") + text);
         suggestions.setVisible(!text.isEmpty()); revalidate(); repaint();
     }
     private void refreshContextPreview() {
         CodeContext.Prepared prepared = transcript.prepare(composer.getText().strip());
         contextLabel.setText(includeContext.isSelected() ? prepared.description() : "本次不附带代码批注");
-        contextLabel.setToolTipText(prepared.description()); contextPreview.setVisible(!prepared.description().isEmpty());
+        I18n.tooltip(contextLabel, prepared.description()); contextPreview.setVisible(!prepared.description().isEmpty());
         revalidate(); repaint();
     }
     private void scrollToBottom() {
@@ -343,7 +405,7 @@ final class ChatPanel extends JPanel {
     boolean isBusy() { return busy; }
     int messageCount() { return transcript.messageCount(); }
     String selectedModelId() { return selectedId; }
-    void close() { connected = false; if (credentialDialog != null) credentialDialog.dispose(); backend.close(); }
+    void close() { if (closed) return; closed = true; connected = false; transcript.finishProgress(false); if (credentialDialog != null) credentialDialog.dispose(); backend.close(); }
 
     private static final class PromptArea extends JTextArea {
         @Override protected void paintComponent(Graphics graphics) {
@@ -351,7 +413,7 @@ final class ChatPanel extends JPanel {
             if (getText().isEmpty()) {
                 Graphics2D g = (Graphics2D) graphics.create(); Theme.antialias(g);
                 g.setFont(getFont()); g.setColor(new Color(0x7F8CA4));
-                g.drawString("向 Nautilus 发送消息…", 0, getFontMetrics(getFont()).getAscent() + 1); g.dispose();
+                g.drawString(I18n.t("向 Nautilus 发送消息…"), 0, getFontMetrics(getFont()).getAscent() + 1); g.dispose();
             }
         }
     }

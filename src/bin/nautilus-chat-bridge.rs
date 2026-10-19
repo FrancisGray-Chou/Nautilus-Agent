@@ -17,6 +17,9 @@ fn send(output: &mut impl Write, response: &Value) -> io::Result<()> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut session = ChatSession::new(CredentialStore::current_user()?);
+    if std::env::args().any(|arg| arg == "--sse") {
+        return nautilus_agent::sse::run(session).await;
+    }
     let mut output = io::stdout().lock();
     send(&mut output, &session.ready())?;
     for line in io::stdin().lock().lines() {
@@ -35,7 +38,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let shutdown = matches!(request, Request::Shutdown);
-        send(&mut output, &session.handle(request).await)?;
+        let shared = std::cell::RefCell::new(&mut output);
+        let response = session
+            .handle_with_events(
+                request,
+                &mut |message| {
+                    let _ = send(
+                        &mut **shared.borrow_mut(),
+                        &json!({"type":"notice", "message":message}),
+                    );
+                },
+                &mut |event| {
+                    let _ = send(
+                        &mut **shared.borrow_mut(),
+                        &json!({"type":"progress", "progress":event}),
+                    );
+                },
+            )
+            .await;
+        send(&mut output, &response)?;
         if shutdown {
             break;
         }

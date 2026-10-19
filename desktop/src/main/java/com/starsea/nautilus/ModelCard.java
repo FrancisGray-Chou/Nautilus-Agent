@@ -14,7 +14,7 @@ final class ModelCard extends JButton {
         setPreferredSize(new Dimension(236, 76)); setMaximumSize(new Dimension(Integer.MAX_VALUE, 76));
         setContentAreaFilled(false); setBorderPainted(false); setFocusPainted(false);
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        setToolTipText(option.name() + " · " + option.subtitle());
+        I18n.tooltip(this, option.name() + " · " + option.subtitle());
         addActionListener(event -> select.run());
     }
     void active(boolean active) { this.active = active; repaint(); }
@@ -27,6 +27,7 @@ final class ModelCard extends JButton {
         Color icon = switch (option.provider()) {
             case "DeepSeek" -> new Color(0x8AB2FF);
             case "OpenAI" -> Theme.MINT;
+            case "Claude" -> new Color(0xDFA88C);
             default -> Theme.ACCENT;
         };
         g.setColor(new Color(icon.getRed(), icon.getGreen(), icon.getBlue(), 25));
@@ -34,9 +35,9 @@ final class ModelCard extends JButton {
         g.setFont(Theme.font(17, true)); g.setColor(isEnabled() ? icon : Theme.MUTED);
         g.drawString(option.provider().substring(0, 1), 22, 43);
         g.setColor(isEnabled() ? Theme.TEXT : Theme.MUTED); g.setFont(Theme.font(13, true));
-        g.drawString(option.name(), 58, 31);
+        g.drawString(I18n.t(option.name()), 58, 31);
         g.setColor(Theme.MUTED); g.setFont(Theme.font(10, false));
-        g.drawString(option.subtitle(), 58, 51);
+        g.drawString(I18n.t(option.subtitle()), 58, 51);
         if (active) { g.setColor(Theme.ACCENT); g.fillOval(w - 22, 14, 6, 6); }
         if (hasFocus()) { g.setColor(Theme.ACCENT); g.drawRoundRect(2, 2, w - 5, h - 5, 14, 14); }
         g.dispose();

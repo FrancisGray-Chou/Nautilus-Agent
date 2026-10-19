@@ -4,12 +4,30 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
+from contextlib import redirect_stdout
+import io
 from pathlib import Path
 
 import check_release as release
+import publish_github
 
 
 class ReleaseBoundaryTest(unittest.TestCase):
+    def test_publish_defaults_to_offline_preview(self):
+        with patch("sys.argv", ["publish_github.py"]), patch.object(publish_github, "publish") as publish:
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(publish_github.main(), 0)
+            publish.assert_not_called()
+            self.assertIn("未连接或修改 GitHub", output.getvalue())
+
+    def test_published_tags_are_not_overwritten(self):
+        with patch.object(publish_github.shutil, "which", return_value="/test/command"):
+            with patch.object(publish_github, "run", side_effect=["", "existing-tag"]) as run:
+                with self.assertRaisesRegex(ValueError, "已存在"):
+                    publish_github.publish([], release.version())
+                self.assertEqual(run.call_count, 2)
+
     def setUp(self):
         self.previous = release.ROOT
         self.temporary = tempfile.TemporaryDirectory(prefix="nautilus-release-test-")
@@ -31,6 +49,7 @@ class ReleaseBoundaryTest(unittest.TestCase):
             path.write_text("not-for-release")
         selected = {str(path.relative_to(self.root)) for path in release.validate()}
         self.assertIn(".env.example", selected)
+        self.assertIn("更新内容.md", selected)
         self.assertNotIn(".env", selected)
         self.assertNotIn("desktop/out/stale.class", selected)
 

@@ -6,7 +6,7 @@ use nautilus_agent::{
 use std::io::{self, Write};
 
 fn print_menu() {
-    println!("请选择服务：1 = DeepSeek，2 = OpenAI，3 = Gemini");
+    println!("请选择服务：1 = DeepSeek，2 = OpenAI，3 = Gemini，4 = Claude");
 }
 
 fn print_gemini_menu() {
@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         print!(
             "{}",
             match mode {
-                InputMode::Provider => "选择服务 [1/2/3]: ",
+                InputMode::Provider => "选择服务 [1/2/3/4]: ",
                 InputMode::Gemini => "选择 Gemini 模式 [1/2/3]: ",
                 InputMode::Chat => "User: ",
             }
@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mode = InputMode::Provider;
                 print_menu();
             }
-            InputAction::InvalidSelection => println!("请输入 1、2 或 3 选择菜单选项。"),
+            InputAction::InvalidSelection => println!("请输入当前菜单列出的数字选择选项。"),
             InputAction::SelectModel(ModelProvider::Gemini) => {
                 mode = InputMode::Gemini;
                 print_gemini_menu();
@@ -176,6 +176,7 @@ mod tests {
             ("1", ModelProvider::DeepSeek),
             ("2", ModelProvider::OpenAI),
             ("3", ModelProvider::Gemini),
+            ("4", ModelProvider::Claude),
         ] {
             assert_eq!(
                 parse_input(input, InputMode::Provider),

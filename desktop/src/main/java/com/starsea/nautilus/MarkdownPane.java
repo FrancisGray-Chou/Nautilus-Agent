@@ -5,7 +5,7 @@ import java.awt.Desktop;
 import java.awt.GraphicsEnvironment;
 import java.net.URI;
 import java.util.List;
-import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import javax.swing.*;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.text.Element;
@@ -19,11 +19,11 @@ import javax.swing.text.html.StyleSheet;
 
 /** Selectable Markdown output; URLs open only after an explicit click. */
 @SuppressWarnings("serial")
-final class MarkdownPane extends JEditorPane {
+final class MarkdownPane extends JEditorPane implements I18n.Localized {
     private final String markdown;
     private final List<CodeContext.Block> blocks;
-    MarkdownPane(String markdown) { this(markdown, List.of(), (block, action) -> {}); }
-    MarkdownPane(String markdown, List<CodeContext.Block> blocks, BiConsumer<CodeContext.Block, String> action) {
+    MarkdownPane(String markdown) { this(markdown, List.of(), (block, action) -> false); }
+    MarkdownPane(String markdown, List<CodeContext.Block> blocks, BiFunction<CodeContext.Block, String, Boolean> action) {
         this.markdown = markdown; this.blocks = blocks;
         setEditable(false); setOpaque(false); setBorder(BorderFactory.createEmptyBorder());
         setFont(Theme.font(15, false)); setForeground(Theme.TEXT);
@@ -61,6 +61,10 @@ final class MarkdownPane extends JEditorPane {
         });
     }
 
+    @Override public void refreshLanguage() {
+        int caret = getCaretPosition(); refresh(); setCaretPosition(Math.min(caret, getDocument().getLength()));
+    }
+
     void refresh() {
         setText("<html><body>" + MarkdownRenderer.render(markdown, blocks) + "</body></html>"); setCaretPosition(0);
         revalidate(); repaint();
@@ -83,7 +87,7 @@ final class MarkdownPane extends JEditorPane {
                 try { get(); }
                 catch (Exception ex) {
                     if (!GraphicsEnvironment.isHeadless()) JOptionPane.showMessageDialog(MarkdownPane.this,
-                            "无法打开浏览器，请复制链接地址：\n" + address, "打开链接", JOptionPane.INFORMATION_MESSAGE);
+                            I18n.t("无法打开浏览器，请复制链接地址：\n") + address, I18n.t("打开链接"), JOptionPane.INFORMATION_MESSAGE);
                 }
             }
         }.execute();
@@ -91,7 +95,7 @@ final class MarkdownPane extends JEditorPane {
 
     private static final class WrappingHtmlKit extends HTMLEditorKit {
         private final ViewFactory factory;
-        WrappingHtmlKit(List<CodeContext.Block> blocks, BiConsumer<CodeContext.Block, String> action) {
+        WrappingHtmlKit(List<CodeContext.Block> blocks, BiFunction<CodeContext.Block, String, Boolean> action) {
             factory = new HTMLFactory() {
             @Override public View create(Element element) {
                 Object name = element.getAttributes().getAttribute(HTML.Attribute.NAME);
@@ -112,7 +116,10 @@ final class MarkdownPane extends JEditorPane {
                                 button.setFont(Theme.font(11, false)); button.setBorder(BorderFactory.createEmptyBorder(4, 9, 4, 9));
                                 button.setName(block.id + "-" + label);
                                 button.getAccessibleContext().setAccessibleName(block.id + " " + label);
-                                button.addActionListener(event -> action.accept(block, label)); toolbar.add(button);
+                                button.addActionListener(event -> {
+                                    boolean applied=Boolean.TRUE.equals(action.apply(block,label));
+                                    if(label.equals("复制")&&applied)button.feedback("已复制 ✓");
+                                }); toolbar.add(button);
                             }
                             return toolbar;
                         }

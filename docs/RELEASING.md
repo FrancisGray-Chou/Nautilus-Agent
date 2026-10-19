@@ -1,12 +1,12 @@
-# 发布 Alpha 0.0.1
+# 发布 Alpha 0.0.2-alpha.1
 
-[项目首页](../README.md) · [发布说明](releases/v0.0.1-alpha.2.md) · [测试](TESTING.md)
+[项目首页](../README.md) · [发布说明](releases/v0.0.2-alpha.1.md) · [测试](TESTING.md)
 
 | 项目 | 值 |
 | --- | --- |
-| 展示名称 | Nautilus Alpha 0.0.1 |
-| Cargo / 源码包版本 | `0.0.1-alpha.2` |
-| Git 标签 | `v0.0.1-alpha.2` |
+| 展示名称 | Nautilus Alpha 0.0.2-alpha.1 |
+| Cargo / 源码包版本 | `0.0.2-alpha.1` |
+| Git 标签 | `v0.0.2-alpha.1` |
 | GitHub 类型 | Draft + Pre-release，审阅完成后再公开 |
 | 附件 | 源码 ZIP、源码 TAR.GZ、SHA256SUMS |
 | GitHub 仓库 | `FrancisGray-Chou/Nautilus-Agent` |
@@ -16,6 +16,18 @@
 目标仓库为 [FrancisGray-Chou/Nautilus-Agent](https://github.com/FrancisGray-Chou/Nautilus-Agent)。本地已准备文档、版本元数据、发布检查、归档脚本、CI 和草稿工作流。最初的本地工作区没有提交记录；远程 `main` 已有 README 的历史，导入时应保留这些提交。发布状态以 GitHub 仓库中的提交、Actions 和 Releases 为准。
 
 工作区归档可以提前审阅，但其 `SOURCE-MANIFEST.json` 会标记尚未提交/不干净的状态。**正式上传的归档应在目标提交和标签确定后重新生成**。项目级许可证仍待作者决定，本次没有增加默认许可证。
+
+## 一条命令发布
+
+在可以正常连接 GitHub、已安装 GitHub CLI 并登录的本机终端，从工程根目录执行：
+
+```bash
+python3 scripts/publish_github.py --publish
+```
+
+不带 `--publish` 时仅验证本地发布清单，不连接或修改远端。正式执行会在 `dist/` 中克隆远端默认分支，保留现有提交历史，只复制当前已检查的源码白名单并提交；创建本地标签、严格检查并重新生成干净提交的源码附件，推送分支并等待对应提交的 GitHub CI。CI 通过后才推送新标签，创建公开的 **Pre-release** 并上传 ZIP、TAR.GZ、SHA256SUMS。这里的显式发布命令对应维护者已决定公开预发布的情况；下方草稿流程仍可用于提前审阅。
+
+脚本不会强制推送或移动已有标签。已有版本标签、远端额外跟踪文件、CI 失败或网络错误均停止后续发布；失败时保留 `dist/github-publish-*` 工作目录供检查，不宣称上传成功。若已经推送标签但 Release 创建失败，请从保留目录继续执行下方 CLI 创建 Release 的命令，避免重新创建同名标签。
 
 ## 1. 检查并生成本地测试包
 
@@ -53,10 +65,10 @@ PY
 cd ../Nautilus-Agent-github
 
 # 先检查 git status 和暂存差异，确认没有凭据、IDE 文件和构建产物。
-git add .gitignore .env.example Cargo.toml Cargo.lock README.md CHANGELOG.md src desktop docs scripts .github
+git add .gitignore .env.example Cargo.toml Cargo.lock README.md CHANGELOG.md 更新内容.md src desktop docs scripts .github
 git diff --cached --stat
 git diff --cached --check
-git commit -m "Prepare Nautilus Alpha 0.0.1"
+git commit -m "Prepare Nautilus Alpha 0.0.2-alpha.1"
 # 如有新建的 LICENSE，还需一并加入提交。不要强制推送或覆盖远程历史。
 git push -u origin main
 ```
@@ -68,9 +80,9 @@ git push -u origin main
 确认目标提交的 CI 结果，随后执行：
 
 ```bash
-git tag -a v0.0.1-alpha.2 -m "Nautilus Alpha 0.0.1"
-python3 scripts/check_release.py --tag v0.0.1-alpha.2
-git push origin v0.0.1-alpha.2
+git tag -a v0.0.2-alpha.1 -m "Nautilus Alpha 0.0.2-alpha.1"
+python3 scripts/check_release.py --tag v0.0.2-alpha.1
+git push origin v0.0.2-alpha.1
 ```
 
 严格标签检查要求版本一致、HEAD 与标签对应、工作区干净，且 Git 跟踪文件与发布白名单一致。不要移动已经对外发布的标签；修复应使用新的预发布版本号。
@@ -79,7 +91,7 @@ git push origin v0.0.1-alpha.2
 
 ### GitHub Actions（已准备）
 
-在目标仓库默认分支的 Actions 中选择 **Draft Alpha release** → **Run workflow**，填写已推送的标签 `v0.0.1-alpha.2`。
+在目标仓库默认分支的 Actions 中选择 **Draft Alpha release** → **Run workflow**，填写已推送的标签 `v0.0.2-alpha.1`。
 
 工作流重新检出该标签，运行可复用的双平台 CI，严格校验标签与工作区，生成源码包，再创建 **Draft + Pre-release** 并上传三个附件。它不会自动公开发布，也不会覆盖已有 Release。
 
@@ -88,16 +100,16 @@ git push origin v0.0.1-alpha.2
 在自己的环境安装并登录 GitHub CLI 后，检出目标标签，重新打包：
 
 ```bash
-git switch --detach v0.0.1-alpha.2
-python3 scripts/check_release.py --tag v0.0.1-alpha.2
+git switch --detach v0.0.2-alpha.1
+python3 scripts/check_release.py --tag v0.0.2-alpha.1
 python3 scripts/package_release.py
-gh release create v0.0.1-alpha.2 \
-  dist/nautilus-0.0.1-alpha.2-source.zip \
-  dist/nautilus-0.0.1-alpha.2-source.tar.gz \
+gh release create v0.0.2-alpha.1 \
+  dist/nautilus-0.0.2-alpha.1-source.zip \
+  dist/nautilus-0.0.2-alpha.1-source.tar.gz \
   dist/SHA256SUMS \
   --verify-tag --draft --prerelease \
-  --title "Nautilus Alpha 0.0.1" \
-  --notes-file docs/releases/v0.0.1-alpha.2.md
+  --title "Nautilus Alpha 0.0.2-alpha.1" \
+  --notes-file docs/releases/v0.0.2-alpha.1.md
 ```
 
 没有 CLI 时，也可在 GitHub Releases 页面选择现有标签，粘贴发布说明并附加三个文件，勾选 Pre-release 后保存草稿。

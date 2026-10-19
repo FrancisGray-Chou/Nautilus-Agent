@@ -23,8 +23,8 @@ final class CodeEditorPanel extends JPanel {
         mark.addActionListener(event -> {
             try {
                 int start = code.getSelectionStart(), end = code.getSelectionEnd();
-                if (end > start) note.append((note.getText().isBlank() ? "" : "\n") + "第 " + (code.getLineOfOffset(start) + 1)
-                        + "–" + (code.getLineOfOffset(end - 1) + 1) + " 行：");
+                if (end > start) note.append((note.getText().isBlank() ? "" : "\n") + I18n.t("第 ") + (code.getLineOfOffset(start) + 1)
+                        + "–" + (code.getLineOfOffset(end - 1) + 1) + I18n.t(" 行："));
                 note.requestFocusInWindow();
             } catch (javax.swing.text.BadLocationException ex) { throw new IllegalStateException(ex); }
         });

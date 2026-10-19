@@ -98,3 +98,31 @@ fn provider_requests_use_the_correct_endpoint_and_gemini_thinking() {
         }
     }
 }
+
+#[test]
+fn budget_limits_are_serialized_for_every_provider() {
+    for provider in [
+        ModelProvider::DeepSeek,
+        ModelProvider::OpenAI,
+        ModelProvider::Gemini,
+    ] {
+        let client = LLMClient::from_config(LLMConfig {
+            provider,
+            api_key: "test".into(),
+            model: "test".into(),
+            web_search: false,
+        })
+        .unwrap();
+        let request = client
+            .build_limited_request(&[Message::user("task")], 237)
+            .unwrap();
+        let key = if provider == ModelProvider::OpenAI {
+            "max_completion_tokens"
+        } else {
+            "max_tokens"
+        };
+        assert_eq!(request[key], 237);
+        assert!(client.build_limited_request(&[], 199).is_err());
+        assert!(request.get("tools").is_none_or(Value::is_null));
+    }
+}

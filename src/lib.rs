@@ -10,3 +10,10 @@ pub mod message;
 pub mod tool;
 
 pub use agent::NautilusAgent;
+
+pub mod mixture;
+
+pub mod budget;
+
+pub mod progress;
+pub mod sse;

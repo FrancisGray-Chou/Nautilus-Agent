@@ -2,8 +2,59 @@
 
 pub const DEEPSEEK_API_BASE: &str = "https://api.deepseek.com";
 pub const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-flash";
+pub const DEEPSEEK_PRO_MODEL: &str = "deepseek-v4-pro";
 pub const GEMINI_FLASH_MODEL: &str = "gemini-3.8-flash";
 pub const GEMINI_ARGON_MODEL: &str = "gemini-4-argon";
+
+/// Desktop selection IDs stay separate from Anthropic's API model IDs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaudeModel {
+    Opus,
+    Fable,
+    Sonnet,
+    Haiku,
+}
+
+impl ClaudeModel {
+    pub const ALL: [Self; 4] = [Self::Opus, Self::Fable, Self::Sonnet, Self::Haiku];
+    pub fn selection_id(self) -> &'static str {
+        match self {
+            Self::Opus => "claude-opus",
+            Self::Fable => "claude-fable",
+            Self::Sonnet => "claude-sonnet",
+            Self::Haiku => "claude-haiku",
+        }
+    }
+    pub fn parse(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|model| model.selection_id() == id)
+    }
+    pub fn api_id(self) -> &'static str {
+        match self {
+            Self::Opus => "claude-opus-5-5",
+            Self::Fable => "claude-fable-5-1",
+            Self::Sonnet => "claude-sonnet-5-5",
+            Self::Haiku => "claude-haiku-5-5",
+        }
+    }
+    pub fn subtitle(self) -> &'static str {
+        match self {
+            Self::Opus => "长任务与代码",
+            Self::Fable => "复杂推理",
+            Self::Sonnet => "均衡对话与协作",
+            Self::Haiku => "快速响应",
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Opus => "Claude Opus 5.5",
+            Self::Fable => "Claude Fable 5.1",
+            Self::Sonnet => "Claude Sonnet 5.5",
+            Self::Haiku => "Claude Haiku 5.5",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeminiMode {
@@ -81,6 +132,7 @@ pub enum ModelProvider {
     DeepSeek,
     OpenAI,
     Gemini,
+    Claude,
 }
 
 impl ModelProvider {
@@ -89,6 +141,7 @@ impl ModelProvider {
             "1" => Some(Self::DeepSeek),
             "2" => Some(Self::OpenAI),
             "3" => Some(Self::Gemini),
+            "4" => Some(Self::Claude),
             _ => None,
         }
     }
@@ -98,6 +151,7 @@ impl ModelProvider {
             Self::DeepSeek => "DeepSeek",
             Self::OpenAI => "OpenAI",
             Self::Gemini => "Gemini",
+            Self::Claude => "Claude",
         }
     }
 
@@ -106,6 +160,7 @@ impl ModelProvider {
             Self::DeepSeek => DEEPSEEK_API_BASE,
             Self::OpenAI => "https://api.openai.com/v1",
             Self::Gemini => "https://generativelanguage.googleapis.com/v1beta/openai",
+            Self::Claude => "https://api.anthropic.com/v1",
         }
     }
 
@@ -114,6 +169,7 @@ impl ModelProvider {
             Self::DeepSeek => ("DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", DEFAULT_DEEPSEEK_MODEL),
             Self::OpenAI => ("OPENAI_API_KEY", "OPENAI_MODEL", "gpt-5-mini"),
             Self::Gemini => ("GEMINI_API_KEY", "GEMINI_MODEL", "gemini-3.8-flash"),
+            Self::Claude => ("ANTHROPIC_API_KEY", "CLAUDE_MODEL", "claude-opus-5-5"),
         }
     }
 }
@@ -135,6 +191,9 @@ impl LLMConfig {
         let lookup = |name: &str| {
             if name == key_name {
                 Some(key.to_string())
+            } else if provider == ModelProvider::Claude && name == "CLAUDE_MODEL" {
+                // Desktop choices explicitly select a preset; CLI still reads CLAUDE_MODEL.
+                None
             } else {
                 std::env::var(name).ok()
             }
@@ -267,10 +326,11 @@ mod tests {
             ("1", ModelProvider::DeepSeek),
             ("2", ModelProvider::OpenAI),
             ("3", ModelProvider::Gemini),
+            ("4", ModelProvider::Claude),
         ] {
             assert_eq!(ModelProvider::from_number(number), Some(provider));
         }
-        assert_eq!(ModelProvider::from_number("4"), None);
+        assert_eq!(ModelProvider::from_number("5"), None);
     }
 
     #[test]
@@ -279,6 +339,7 @@ mod tests {
             ModelProvider::DeepSeek,
             ModelProvider::OpenAI,
             ModelProvider::Gemini,
+            ModelProvider::Claude,
         ] {
             let (key_name, _, default_model) = provider.env_names();
             let config = LLMConfig::from_lookup(provider, |name| {
