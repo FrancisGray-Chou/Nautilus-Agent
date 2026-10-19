@@ -48,7 +48,6 @@ python3 scripts/package_release.py
 当前远程有已有历史。推荐先在新目录克隆，再仅复制发布白名单中的文件，避免把无关的本地根提交强行推到远程：
 
 ```bash
-# 在包含准备好的源码的目录执行；目标目录已存在时 clone 会停止，不覆盖它。
 git clone https://github.com/FrancisGray-Chou/Nautilus-Agent.git ../Nautilus-Agent-github
 python3 - <<'PY'
 import shutil
