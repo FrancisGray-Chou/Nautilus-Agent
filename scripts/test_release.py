@@ -29,6 +29,15 @@ class ReleaseBoundaryTest(unittest.TestCase):
                     publish_github.publish([], release.version())
                 self.assertEqual(run.call_count, 2)
 
+    def test_ci_failure_reports_failed_step_logs_and_stops_release(self):
+        failure = subprocess.CalledProcessError(1, ["gh", "run", "watch"])
+        with patch.object(publish_github, "run", side_effect=['[{"databaseId": 123}]', failure, ""]) as run:
+            with redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(ValueError, "CI 未通过，未推送发布标签"):
+                    publish_github.wait_for_ci(self.root, "test-revision")
+            self.assertEqual(run.call_args.args[:4], ("gh", "run", "view", "123"))
+            self.assertIn("--log-failed", run.call_args.args)
+
     def setUp(self):
         self.previous = release.ROOT
         self.temporary = tempfile.TemporaryDirectory(prefix="nautilus-release-test-")
@@ -70,12 +79,18 @@ class ReleaseBoundaryTest(unittest.TestCase):
 
     def test_publish_preserves_remote_demo_and_old_release_through_tag_validation(self):
         source_files = release.validate()
+        # The GitHub checkout can contain historical notes absent from the
+        # developer workspace. Pick a genuinely remote-only fixture name.
+        revision = 2
+        while (self.root / f"docs/releases/v0.0.1-alpha.{revision}.md").exists():
+            revision += 1
+        historical_note = f"docs/releases/v0.0.1-alpha.{revision}.md"
         preserved = {
             "docs/nautilus-demo/README.md": b"[example](examples/demo.html)\n",
             "docs/nautilus-demo/examples/demo.html": b"<!doctype html><title>Demo</title>",
             "docs/nautilus-demo/assets/demo.gif": b"GIF89a mock demo",
             "docs/nautilus-demo/sources.json": b'{"preserve":true}',
-            "docs/releases/v0.0.1-alpha.2.md": b"# Historical release\n",
+            historical_note: b"# Historical release\n",
         }
         with tempfile.TemporaryDirectory(prefix="nautilus-local-remote-") as temporary:
             seed = Path(temporary) / "seed"

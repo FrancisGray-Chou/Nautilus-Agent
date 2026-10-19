@@ -35,8 +35,17 @@ def wait_for_ci(checkout: Path, revision: str) -> None:
                               "--workflow", "ci.yml", "--commit", revision,
                               "--event", "push", "--json", "databaseId", cwd=checkout, capture=True))
         if rows:
-            run("gh", "run", "watch", str(rows[0]["databaseId"]), "--repo", REPOSITORY,
-                "--exit-status", "--interval", "10", cwd=checkout)
+            run_id = str(rows[0]["databaseId"])
+            try:
+                run("gh", "run", "watch", run_id, "--repo", REPOSITORY,
+                    "--exit-status", "--interval", "10", cwd=checkout)
+            except subprocess.CalledProcessError:
+                print("CI 未通过，读取失败步骤日志：", flush=True)
+                try:
+                    run("gh", "run", "view", run_id, "--repo", REPOSITORY, "--log-failed", cwd=checkout)
+                except (OSError, subprocess.CalledProcessError):
+                    print(f"无法读取日志，请查看 https://github.com/{REPOSITORY}/actions/runs/{run_id}", flush=True)
+                raise ValueError(f"CI 未通过，未推送发布标签：https://github.com/{REPOSITORY}/actions/runs/{run_id}") from None
             return
         time.sleep(5)
     raise ValueError("未发现目标提交的 CI，已停止发布标签；请检查仓库 Actions。")
