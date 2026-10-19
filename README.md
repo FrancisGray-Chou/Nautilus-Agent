@@ -15,6 +15,7 @@ Nautilus 将 DeepSeek、OpenAI、Gemini 和 Claude 集成在同一个桌面界�
 ![示例演示Max专家模式](docs/nautilus-demo/assets/max-cyber-snake.gif)
 
 *界面来自离线 Swing 渲染测试，使用模拟数据，不代表真实模型回答。*
+
 *演示示例使用Nautilus·Mixture专家模式（规划：DeepSeek-V4.1-Flash + 执行：Gemini-4-Argon + 复核汇总:Claude Fable 5.1）*
 
 ## 功能概览
