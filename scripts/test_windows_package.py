@@ -18,7 +18,7 @@ class WindowsPackageTest(unittest.TestCase):
             if tool not in missing:
                 target = root / "bin" / (tool + ".exe")
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text("fake tool; tests mock java execution")
+                target.write_text("fake tool; tests mock java execution", encoding="utf-8")
         return root.resolve()
 
     def java_info(self, arch="amd64", version="17"):

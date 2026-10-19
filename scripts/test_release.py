@@ -29,6 +29,12 @@ class ReleaseBoundaryTest(unittest.TestCase):
                     publish_github.publish([], release.version())
                 self.assertEqual(run.call_count, 2)
 
+    def test_push_only_cli_selects_branch_update_without_release(self):
+        with patch("sys.argv", ["publish_github.py", "--push-only"]), patch.object(publish_github, "publish") as publish:
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(publish_github.main(), 0)
+            self.assertEqual(publish.call_args.kwargs, {"create_release": False})
+
     def test_ci_failure_reports_failed_step_logs_and_stops_release(self):
         failure = subprocess.CalledProcessError(1, ["gh", "run", "watch"])
         with patch.object(publish_github, "run", side_effect=['[{"databaseId": 123}]', failure, ""]) as run:
@@ -37,6 +43,39 @@ class ReleaseBoundaryTest(unittest.TestCase):
                     publish_github.wait_for_ci(self.root, "test-revision")
             self.assertEqual(run.call_args.args[:4], ("gh", "run", "view", "123"))
             self.assertIn("--log-failed", run.call_args.args)
+
+    def test_unspecified_push_failure_retries_same_non_force_push(self):
+        rejected = subprocess.CompletedProcess([], 1, "", "remote: temporary failure\n! [remote rejected] HEAD -> main (failure)\n")
+        success = subprocess.CompletedProcess([], 0, "", "HEAD -> main\n")
+        with patch.object(publish_github.subprocess, "run", side_effect=[rejected, success]) as run, \
+             patch.object(publish_github.time, "sleep") as sleep, redirect_stdout(io.StringIO()), \
+             patch("sys.stderr", new_callable=io.StringIO):
+            publish_github.push_branch(self.root, "main")
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0].args[0], ["git", "push", "origin", "HEAD:refs/heads/main"])
+        self.assertEqual(run.call_args_list[0].args, run.call_args_list[1].args)
+        sleep.assert_called_once_with(2)
+
+    def test_permanent_push_rejection_keeps_server_details_without_retry(self):
+        for reason in ("remote: GH013 repository rule violation", "remote: refusing to allow workflow update without workflow scope"):
+            rejected = subprocess.CompletedProcess([], 1, "", reason + "\n! [remote rejected] HEAD -> main (failure)\n")
+            with patch.object(publish_github.subprocess, "run", return_value=rejected) as run, \
+                 patch.object(publish_github.time, "sleep") as sleep, redirect_stdout(io.StringIO()), \
+                 patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                with self.assertRaisesRegex(ValueError, "修复尚未上传"):
+                    publish_github.push_branch(self.root, "main")
+            self.assertIn(reason, stderr.getvalue())
+            self.assertEqual(run.call_count, 1)
+            sleep.assert_not_called()
+
+    def test_unspecified_push_failure_stops_after_three_attempts(self):
+        rejected = subprocess.CompletedProcess([], 1, "", "! [remote rejected] HEAD -> main (failure)\n")
+        with patch.object(publish_github.subprocess, "run", return_value=rejected) as run, \
+             patch.object(publish_github.time, "sleep"), redirect_stdout(io.StringIO()), \
+             patch("sys.stderr", new_callable=io.StringIO):
+            with self.assertRaisesRegex(ValueError, "本地提交已保留"):
+                publish_github.push_branch(self.root, "main")
+        self.assertEqual(run.call_count, 3)
 
     def setUp(self):
         self.previous = release.ROOT
@@ -56,7 +95,7 @@ class ReleaseBoundaryTest(unittest.TestCase):
         for name in (".env", "desktop/out/stale.class", "desktop/build/private.txt", ".idea/workspace.xml"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("not-for-release")
+            path.write_text("not-for-release", encoding="utf-8")
         selected = {str(path.relative_to(self.root)) for path in release.validate()}
         self.assertIn(".env.example", selected)
         self.assertIn("更新内容.md", selected)
@@ -66,7 +105,7 @@ class ReleaseBoundaryTest(unittest.TestCase):
     def test_demo_is_repository_only_and_unknown_remote_files_still_fail(self):
         demo = self.root / "docs/nautilus-demo/README.md"
         demo.parent.mkdir(parents=True)
-        demo.write_text("[demo](examples/demo.html)\n")
+        demo.write_text("[demo](examples/demo.html)\n", encoding="utf-8")
         selected = {path.relative_to(self.root).as_posix() for path in release.validate()}
         self.assertNotIn("docs/nautilus-demo/README.md", selected)
         release.check_repository_extras(self.root, {"docs/nautilus-demo/README.md"})
@@ -104,14 +143,14 @@ class ReleaseBoundaryTest(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
             def git(*args):
-                return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+                return subprocess.run(["git", *args], check=True, capture_output=True, text=True, encoding="utf-8").stdout
             git("init", "-q", str(seed))
             git("-C", str(seed), "add", ".")
             git("-C", str(seed), "-c", "user.name=Release Test", "-c", "user.email=release@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "existing remote")
             remote = Path(temporary) / "remote.git"
             git("clone", "--bare", str(seed), str(remote))
             readme = self.root / "README.md"
-            readme.write_text(readme.read_text() + "\nCurrent release source update.\n")
+            readme.write_text(readme.read_text(encoding="utf-8") + "\nCurrent release source update.\n", encoding="utf-8")
             real_run = publish_github.run
             def local_run(*args, **kwargs):
                 if args[0] == "gh":
@@ -137,24 +176,49 @@ class ReleaseBoundaryTest(unittest.TestCase):
             import zipfile
             with zipfile.ZipFile(checkout / "dist" / f"nautilus-{release.version()}-source.zip") as archive:
                 self.assertFalse(any("/docs/nautilus-demo/" in name for name in archive.namelist()))
+            tagged_revision = git("--git-dir", str(remote), "rev-parse", tag + "^{commit}")
+            readme.write_text(readme.read_text(encoding="utf-8") + "\nBuild encoding fix.\n", encoding="utf-8")
+            with patch.object(publish_github, "ROOT", self.root), patch.object(publish_github, "REMOTE", str(remote)), \
+                 patch.object(publish_github, "run", side_effect=local_run) as calls, \
+                 patch.object(publish_github, "wait_for_ci", side_effect=AssertionError("push-only must not wait for release CI")), \
+                 patch.object(publish_github.shutil, "which", return_value="test-command"), patch.dict(os.environ, identity):
+                publish_github.publish(source_files, release.version(), create_release=False)
+            self.assertFalse(any(call.args[:3] == ("gh", "release", "create") for call in calls.call_args_list))
+            self.assertEqual(git("--git-dir", str(remote), "rev-parse", tag + "^{commit}"), tagged_revision)
+            current = subprocess.run(["git", "--git-dir", str(remote), "show", "HEAD:README.md"], check=True, capture_output=True).stdout
+            self.assertEqual(current, readme.read_bytes())
 
     def test_version_mismatch_is_rejected(self):
         path = self.root / "Cargo.lock"
-        path.write_text(path.read_text().replace(release.version(), "9.9.9-alpha.1", 1))
+        path.write_text(path.read_text(encoding="utf-8").replace(release.version(), "9.9.9-alpha.1", 1), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "版本不一致"):
             release.validate()
+
+    def test_release_validation_with_windows_legacy_default_encoding(self):
+        native_open = io.open
+        def legacy_open(file, mode="r", buffering=-1, encoding=None, errors=None,
+                        newline=None, closefd=True, opener=None):
+            if "b" not in mode and encoding in (None, "locale"):
+                encoding = "cp1252"
+            return native_open(file, mode, buffering, encoding, errors, newline, closefd, opener)
+        with patch.object(io, "open", side_effect=legacy_open):
+            # Confirm the simulated default reproduces the reported failure.
+            with self.assertRaises(UnicodeDecodeError):
+                (self.root / "README.md").read_text()
+            selected = release.validate()
+        self.assertIn(self.root / "更新内容.md", selected)
 
     def test_credential_pattern_is_rejected_without_echo(self):
         path = self.root / "README.md"
         fake = "sk-" + "x" * 24
-        path.write_text(path.read_text() + "\n" + fake)
+        path.write_text(path.read_text(encoding="utf-8") + "\n" + fake, encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "疑似凭据") as caught:
             release.validate()
         self.assertNotIn(fake, str(caught.exception))
 
     def test_broken_link_is_rejected(self):
         path = self.root / "README.md"
-        path.write_text(path.read_text() + "\n[missing](not-in-package.md)\n")
+        path.write_text(path.read_text(encoding="utf-8") + "\n[missing](not-in-package.md)\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "文档链接"):
             release.validate()
 
@@ -180,7 +244,7 @@ class ReleaseBoundaryTest(unittest.TestCase):
         git("-c", "tag.gpgsign=false", "tag", tag)
         release.validate(tag)
         path = self.root / "README.md"
-        path.write_text(path.read_text() + "\nUncommitted change.\n")
+        path.write_text(path.read_text(encoding="utf-8") + "\nUncommitted change.\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "干净工作区"):
             release.validate(tag)
 

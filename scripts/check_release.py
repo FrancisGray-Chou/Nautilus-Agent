@@ -47,14 +47,14 @@ def check_repository_extras(root: Path, names: set[str]) -> set[str]:
 
 
 def git(*args: str) -> str:
-    result = subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=False)
+    result = subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, encoding="utf-8", check=False)
     if result.returncode:
         raise ValueError("Git 检查失败：" + " ".join(args[:2]))
     return result.stdout.strip()
 
 
 def version() -> str:
-    value = tomllib.loads((ROOT / "Cargo.toml").read_text())["package"]["version"]
+    value = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
     if not re.fullmatch(r"\d+\.\d+\.\d+-alpha\.\d+", value):
         raise ValueError("预发布版本应使用 x.y.z-alpha.n 格式")
     return value
@@ -82,7 +82,7 @@ def validate(tag: str | None = None) -> list[Path]:
     files = release_files()
     allowed = set(files)
     current = version()
-    lock = tomllib.loads((ROOT / "Cargo.lock").read_text())
+    lock = tomllib.loads((ROOT / "Cargo.lock").read_text(encoding="utf-8"))
     package = next(item for item in lock["package"] if item["name"] == "Nautilus-Agent")
     if package["version"] != current:
         raise ValueError("Cargo.toml 与 Cargo.lock 版本不一致")
@@ -90,9 +90,9 @@ def validate(tag: str | None = None) -> list[Path]:
     if notes not in allowed:
         raise ValueError("缺少对应版本的发布说明")
     for name in ("README.md", "desktop/README.md", "CHANGELOG.md"):
-        if current not in (ROOT / name).read_text():
+        if current not in (ROOT / name).read_text(encoding="utf-8"):
             raise ValueError(f"版本信息未同步：{name}")
-    for line in (ROOT / ".env.example").read_text().splitlines():
+    for line in (ROOT / ".env.example").read_text(encoding="utf-8").splitlines():
         if "_API_KEY=" in line and not line.lstrip().startswith("#") and line.split("=", 1)[1].strip():
             raise ValueError(".env.example 的 API key 必须留空")
     for path in files:
@@ -110,7 +110,7 @@ def validate(tag: str | None = None) -> list[Path]:
                     raise ValueError(f"文档链接未包含在发布清单：{path.relative_to(ROOT)} → {destination}")
     library = ROOT / "desktop/lib"
     recorded = set()
-    for line in (library / "SHA256SUMS").read_text().splitlines():
+    for line in (library / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
         expected, name = line.split()
         path = library / name
         if path not in allowed or hashlib.sha256(path.read_bytes()).hexdigest() != expected:

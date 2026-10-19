@@ -21,6 +21,8 @@
 
 工作流在 Windows Server 2022 x64 上准备完整 Temurin JDK 17、Python 3.12、Rust MSVC 和 WiX 3，执行原生 Rust、桌面及打包后运行时检查，再生成 MSI，检查其数据库及 SHA-256。构建无需模型 API key。
 
+项目文本文件按 UTF-8 读写；Windows 工作流和本地 CMD 构建入口也为 Python 启用 UTF-8，避免系统默认编码导致中文文档或日志报错。
+
 成功后，在该次运行的 **Summary → Artifacts** 下载 `Nautilus-Windows-x64-MSI-运行编号`，解压 ZIP 即可获得 `.msi` 安装器及 `.msi.sha256`。运行摘要也会提供下载链接，产物保留 30 天。工作流不自动创建 GitHub Release。
 
 ## 在 Windows 本地生成安装器

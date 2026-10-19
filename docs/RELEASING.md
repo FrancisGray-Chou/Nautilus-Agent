@@ -19,6 +19,12 @@
 
 ## 一条命令发布
 
+若只是修复构建或更新代码，尤其是当前版本标签已存在时，可仅推送默认分支并触发 Actions，不创建或修改标签及 Release：
+
+```bash
+python3 scripts/publish_github.py --push-only
+```
+
 在可以正常连接 GitHub、已安装 GitHub CLI 并登录的本机终端，从工程根目录执行：
 
 ```bash

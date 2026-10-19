@@ -1,5 +1,7 @@
 @echo off
 setlocal
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
 where py >nul 2>nul
 if errorlevel 1 (
   echo Python 3.11 or later is required on the BUILD MACHINE.

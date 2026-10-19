@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -22,9 +23,37 @@ REMOTE = f"https://github.com/{REPOSITORY}.git"
 
 
 def run(*args: str, cwd: Path = ROOT, capture: bool = False) -> str:
-    result = subprocess.run(args, cwd=cwd, check=True, text=True,
+    result = subprocess.run(args, cwd=cwd, check=True, text=True, encoding="utf-8",
                             stdout=subprocess.PIPE if capture else None)
     return result.stdout.strip() if capture else ""
+
+
+def push_branch(checkout: Path, branch: str) -> None:
+    """Retry an unspecified server failure, while surfacing all rejection details."""
+    command = ["git", "push", "origin", f"HEAD:refs/heads/{branch}"]
+    for attempt in range(3):
+        result = subprocess.run(command, cwd=checkout, capture_output=True,
+                                text=True, encoding="utf-8", errors="replace", check=False)
+        if result.stdout:
+            print(result.stdout, end="", flush=True)
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr, flush=True)
+        if result.returncode == 0:
+            return
+        details = (result.stdout + "\n" + result.stderr).lower()
+        unspecified_failure = re.search(r"\[remote rejected\].*\(failure\)", details)
+        permanent = any(reason in details for reason in (
+            "gh006", "gh013", "protected branch", "repository rule", "permission denied",
+            "authentication failed", "refusing to allow", "workflow scope", "non-fast-forward",
+            "fetch first", "pre-receive hook declined",
+        ))
+        if unspecified_failure and not permanent and attempt < 2:
+            print(f"远端仅返回 failure，将重试正常推送（{attempt + 2}/3）。", flush=True)
+            time.sleep(2 * (attempt + 1))
+            continue
+        raise ValueError(
+            "分支推送被远端拒绝，修复尚未上传。请查看上方完整 remote: 错误；"
+            f"本地提交已保留在 {checkout}。未强制推送或修改已有标签。")
 
 
 def wait_for_ci(checkout: Path, revision: str) -> None:
@@ -51,15 +80,16 @@ def wait_for_ci(checkout: Path, revision: str) -> None:
     raise ValueError("未发现目标提交的 CI，已停止发布标签；请检查仓库 Actions。")
 
 
-def publish(files: list[Path], current: str) -> None:
+def publish(files: list[Path], current: str, *, create_release: bool = True) -> None:
     for command in ("git", "gh"):
         if shutil.which(command) is None:
             raise ValueError(f"请先安装 {command}。")
     run("gh", "auth", "status", "--hostname", "github.com")
     tag = f"v{current}"
-    existing = run("git", "ls-remote", "--tags", REMOTE, f"refs/tags/{tag}", capture=True)
-    if existing:
-        raise ValueError(f"远端标签 {tag} 已存在，未修改它；请先查看对应 Release。")
+    if create_release:
+        existing = run("git", "ls-remote", "--tags", REMOTE, f"refs/tags/{tag}", capture=True)
+        if existing:
+            raise ValueError(f"远端标签 {tag} 已存在，未修改它；请先查看对应 Release。")
     output = ROOT / "dist"
     output.mkdir(exist_ok=True)
     if output.is_symlink():
@@ -90,11 +120,16 @@ def publish(files: list[Path], current: str) -> None:
     elif changed != 0:
         raise ValueError("无法检查暂存改动，已停止发布。")
     revision = run("git", "rev-parse", "HEAD", cwd=checkout, capture=True)
+    if not create_release:
+        run(sys.executable, "scripts/check_release.py", cwd=checkout)
+        push_branch(checkout, branch)
+        print(f"PUSHED: {branch} · {revision}；未创建或修改标签及 Release，请在 Actions 查看构建。", flush=True)
+        return
     run("git", "tag", "-a", tag, "-m", f"Nautilus Alpha {current}", cwd=checkout)
     run(sys.executable, "scripts/check_release.py", "--tag", tag, cwd=checkout)
     run(sys.executable, "scripts/package_release.py", cwd=checkout)
     # No force push: a concurrent remote update safely rejects this operation.
-    run("git", "push", "origin", f"HEAD:refs/heads/{branch}", cwd=checkout)
+    push_branch(checkout, branch)
     wait_for_ci(checkout, revision)
     run("git", "push", "origin", f"refs/tags/{tag}", cwd=checkout)
     run("gh", "release", "create", tag, "--repo", REPOSITORY, "--verify-tag", "--prerelease",
@@ -106,7 +141,9 @@ def publish(files: list[Path], current: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--publish", action="store_true", help="提交、推送并公开 GitHub Pre-release")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--publish", action="store_true", help="提交、推送并公开 GitHub Pre-release")
+    mode.add_argument("--push-only", action="store_true", help="仅提交并推送默认分支以触发 Actions；不创建或修改版本标签及 Release")
     args = parser.parse_args()
     try:
         files = validate()
@@ -114,6 +151,8 @@ def main() -> int:
         print(f"READY: {REPOSITORY} · v{current} · {len(files)} 个源码文件", flush=True)
         if args.publish:
             publish(files, current)
+        elif args.push_only:
+            publish(files, current, create_release=False)
         else:
             print("离线预览完成，未连接或修改 GitHub。实际发布：python3 scripts/publish_github.py --publish")
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
