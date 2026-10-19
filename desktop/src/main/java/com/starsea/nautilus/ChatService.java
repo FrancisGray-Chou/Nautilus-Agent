@@ -6,7 +6,10 @@ import java.util.Map;
 
 interface ChatService extends AutoCloseable {
     record Model(String id, String name, String subtitle, String provider, boolean configured) {}
-    record Selection(String modelId, String model, String provider, boolean search) {}
+    record WebSearch(boolean enabled, boolean available, boolean defaultEnabled) {}
+    record Selection(String modelId, String model, String provider, boolean search, WebSearch searchState) {
+        Selection(String modelId, String model, String provider, boolean search) { this(modelId, model, provider, search, null); }
+    }
     record Progress(String stepId, String role, String model, String status, String message, long elapsedMs, Integer nodeCount, String roleTitle) {
         Progress(String stepId, String role, String model, String status, String message, long elapsedMs, Integer nodeCount) {
             this(stepId, role, model, status, message, elapsedMs, nodeCount, "");
@@ -53,10 +56,13 @@ interface ChatService extends AutoCloseable {
     default void setNoticeListener(java.util.function.Consumer<String> listener) {}
 
     List<Model> initialize() throws IOException;
+    default WebSearch webSearch() throws IOException { return new WebSearch(false, false, false); }
+    default WebSearch setWebSearch(boolean enabled) throws IOException { throw new IOException("当前聊天服务不支持联网搜索"); }
     Selection select(String id) throws IOException;
     default Selection configureMixture(List<String> models) throws IOException { return select("mixture"); }
     default Selection configureMixture(MixtureTeam team) throws IOException { throw new IOException("当前聊天服务不支持自定义协作角色"); }
     Reply chat(String message) throws IOException;
+    default Selection restoreConversation(String modelId,List<Map<String,String>> single,List<Map<String,String>> mixture,MixtureTeam team) throws IOException { throw new IOException("当前服务不支持恢复聊天上下文"); }
     void reset() throws IOException;
     Credentials credentials() throws IOException;
     Credentials saveCredentials(Map<String, String> updates, boolean acknowledged) throws IOException;

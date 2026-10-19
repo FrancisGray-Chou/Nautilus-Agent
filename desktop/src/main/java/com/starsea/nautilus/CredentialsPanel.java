@@ -65,7 +65,7 @@ final class CredentialsPanel extends JPanel {
         JTextArea notice = new JTextArea(I18n.t("明文存储与隐私说明\n"
                 + "• 密钥不加密保存在下方 .env；同一系统账号下的程序或管理员仍可能读取。文件权限限制为当前用户，应用不会上传密钥给开发者。\n"
                 + "• 发送消息时，密钥用于对应平台鉴权；问题与当前会话历史会发送至所选平台。切换平台后，已有上下文也会发送给新平台；Gemini 搜索还会使用 Google Search。相关保存期限、地域和费用由平台条款及你的 API 账号设置决定。\n"
-                + "• 本应用不自动持久保存聊天。密钥保留至你主动删除；删除本机副本不会撤销平台密钥，也不会删除平台已处理的数据或系统备份。\n"
+                + "• 聊天记录、草稿和代码批注自动保存在本机历史对话，可在侧栏删除。密钥保留至你主动删除；删除本机副本不会撤销平台密钥，也不会删除平台已处理的数据或系统备份。\n"
                 + "• 保存或删除密钥将开始新对话，避免在不同凭据之间继续发送旧历史。这是本机账号配置，不是云端账号登录。"));
         notice.setEditable(false); notice.setLineWrap(true); notice.setWrapStyleWord(true); notice.setOpaque(false);
         notice.setFont(Theme.font(12, false)); notice.setForeground(Theme.MUTED);

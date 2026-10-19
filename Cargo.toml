@@ -1,6 +1,6 @@
 [package]
 name = "Nautilus-Agent"
-version = "0.0.2-alpha.1"
+version = "0.0.2-alpha.2"
 edition = "2024"
 default-run = "Nautilus-Agent"
 description = "Nautilus text chat prototype with Rust and a Java desktop client"

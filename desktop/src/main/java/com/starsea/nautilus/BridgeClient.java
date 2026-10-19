@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,10 +30,7 @@ final class BridgeClient implements ChatService {
 
     @Override public synchronized List<Model> initialize() throws IOException {
         if (process != null) throw new IOException("聊天服务已经启动");
-        String executable = System.getProperty("os.name").startsWith("Windows")
-                ? "nautilus-chat-bridge.exe" : "nautilus-chat-bridge";
-        Path backend = root.resolve("target/debug").resolve(executable);
-        if (!Files.isRegularFile(backend)) throw new IOException("未找到聊天服务，请使用 desktop/run.sh 启动");
+        Path backend = PlatformPaths.backend(root, System.getProperty("os.name"));
         boolean sse = !"stdio".equals(System.getProperty("nautilus.transport"));
         ProcessBuilder builder = new ProcessBuilder(sse ? List.of(backend.toString(),"--sse") : List.of(backend.toString())).directory(root.toFile()).redirectError(ProcessBuilder.Redirect.INHERIT);
         byte[] secret=new byte[32];new java.security.SecureRandom().nextBytes(secret);
@@ -60,15 +56,32 @@ final class BridgeClient implements ChatService {
         return List.copyOf(models);
     }
 
+    @Override public synchronized WebSearch webSearch() throws IOException {
+        return searchState(request(Map.of("type", "get_web_search"), "web_search"));
+    }
+    @Override public synchronized WebSearch setWebSearch(boolean enabled) throws IOException {
+        return searchState(request(Map.of("type", "set_web_search", "enabled", enabled), "web_search"));
+    }
+    private static WebSearch searchState(Map<String, Object> response) throws IOException {
+        if (!(response.get("search") instanceof Map<?, ?> state)
+                || !(state.get("enabled") instanceof Boolean enabled)
+                || !(state.get("available") instanceof Boolean available)
+                || !(state.get("default_enabled") instanceof Boolean defaultEnabled)) throw new IOException("联网搜索状态响应无效");
+        return new WebSearch(enabled, available, defaultEnabled);
+    }
+    private static Selection selection(Map<String, Object> response) throws IOException {
+        return new Selection(text(response,"model_id"), text(response,"model"), text(response,"provider"),
+                Boolean.TRUE.equals(response.get("web_search")), searchState(response));
+    }
+
     @Override public synchronized Selection select(String id) throws IOException {
         Map<String, Object> selected = request(Map.of("type", "select_model", "model_id", id), "selected");
-        return new Selection(text(selected, "model_id"), text(selected, "model"),
-                text(selected, "provider"), Boolean.TRUE.equals(selected.get("web_search")));
+        return selection(selected);
     }
 
     @Override public synchronized Selection configureMixture(List<String> models) throws IOException {
         Map<String, Object> selected = request(Map.of("type", "configure_mixture", "models", models), "selected");
-        return new Selection(text(selected, "model_id"), text(selected, "model"), text(selected, "provider"), false);
+        return selection(selected);
     }
 
     @Override public synchronized Selection configureMixture(MixtureTeam team) throws IOException {
@@ -76,12 +89,20 @@ final class BridgeClient implements ChatService {
             "model_id", member.modelId(), "stage", member.stage().id, "role", member.role(), "goal", member.goal())).toList();
         Map<String, Object> selected = request(Map.of("type", "configure_mixture", "members", members,
             "allow_role_fallback", team.allowRoleFallback()), "selected");
-        return new Selection(text(selected, "model_id"), text(selected, "model"), text(selected, "provider"), false);
+        return selection(selected);
     }
 
     @Override public synchronized Reply chat(String message) throws IOException {
         Map<String, Object> reply = request(Map.of("type", "chat", "message", message), "reply");
         return new Reply(text(reply, "text"), text(reply, "model"), text(reply, "provider"), !Boolean.FALSE.equals(reply.get("complete")));
+    }
+
+    @Override public synchronized Selection restoreConversation(String modelId,List<Map<String,String>> single,List<Map<String,String>> mixture,MixtureTeam team) throws IOException {
+        Map<String,Object> command=new LinkedHashMap<>();command.put("type","restore_conversation");command.put("model_id",modelId);command.put("single",single);command.put("mixture",mixture);
+        command.put("members",team==null?null:team.members().stream().map(m->Map.of("model_id",m.modelId(),"stage",m.stage().id,"role",m.role(),"goal",m.goal())).toList());
+        command.put("allow_role_fallback",team!=null&&team.allowRoleFallback());
+        Map<String,Object> response=request(command,"restored");
+        return response.get("model_id")==null?null:selection(response);
     }
 
     @Override public synchronized void reset() throws IOException {

@@ -9,24 +9,41 @@ import subprocess
 import sys
 import tomllib
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = (
-    "README.md", "Cargo.toml", "Cargo.lock", ".env.example", ".gitignore", "CHANGELOG.md", "更新内容.md",
-    "desktop/README.md", "desktop/PRIVACY.md", "desktop/run.sh", "desktop/test.sh",
+    "README.md", "Cargo.toml", "Cargo.lock", ".env.example", ".gitignore", ".gitattributes", "CHANGELOG.md", "更新内容.md",
+    "desktop/README.md", "desktop/PRIVACY.md", "desktop/WINDOWS.md", "desktop/run.sh", "desktop/test.sh",
     "desktop/lib/README.md", "desktop/lib/LICENSE-commonmark.txt", "desktop/lib/SHA256SUMS",
 )
 PATTERNS = (
-    "docs/nautilus-demo/sources.json",
-    "docs/nautilus-demo/assets/*.gif",
-    "docs/nautilus-demo/examples/*.html",
     "src/**/*.rs", "desktop/src/main/java/**/*.java", "desktop/src/test/java/**/*.java",
-    "desktop/lib/*.jar", "docs/**/*.md", "docs/assets/*.png", "scripts/*.py",
+    "desktop/lib/*.jar", "desktop/assets/*.png", "desktop/*.cmd", "desktop/*.ps1", "docs/**/*.md", "docs/assets/*.png", "scripts/*.py",
     ".github/workflows/*.yml", ".github/ISSUE_TEMPLATE/*.yml",
 )
 SECRET = re.compile(r"sk-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
 LINK = re.compile(r"\[[^\]]*\]\(([^\s)]+)(?:\s+\"[^\"]*\")?\)")
+
+
+def repository_only(name: str) -> bool:
+    """Keep the separately maintained demo in Git, outside build/source kits."""
+    path = PurePosixPath(name)
+    return path.parts[:2] == ("docs", "nautilus-demo") and len(path.parts) > 2 and ".." not in path.parts
+
+
+def check_repository_extras(root: Path, names: set[str]) -> set[str]:
+    """Permit existing demo assets and versioned release notes without replacing them."""
+    unexpected = {name for name in names if not repository_only(name)
+                  and not re.fullmatch(r"docs/releases/v\d+\.\d+\.\d+-alpha\.\d+\.md", name)}
+    if unexpected:
+        raise ValueError("远端存在发布白名单以外的文件，未覆盖或删除：" + ", ".join(sorted(unexpected)))
+    for name in names:
+        path = root / name
+        if not path.is_file() or any((root / Path(*path.relative_to(root).parts[:i])).is_symlink()
+                                    for i in range(1, len(path.relative_to(root).parts) + 1)):
+            raise ValueError("保留文件不能是符号链接或非普通文件：" + name)
+    return names
 
 
 def git(*args: str) -> str:
@@ -47,6 +64,7 @@ def release_files() -> list[Path]:
     files = {ROOT / name for name in ROOT_FILES}
     for pattern in PATTERNS:
         files.update(ROOT.glob(pattern))
+    files = {path for path in files if not repository_only(path.relative_to(ROOT).as_posix())}
     # Include a project license if the owner adds one later.
     files.update(path for path in (ROOT / "LICENSE", ROOT / "LICENSE.md") if path.exists())
     for path in files:
@@ -78,7 +96,7 @@ def validate(tag: str | None = None) -> list[Path]:
         if "_API_KEY=" in line and not line.lstrip().startswith("#") and line.split("=", 1)[1].strip():
             raise ValueError(".env.example 的 API key 必须留空")
     for path in files:
-        if path.suffix in {".jar", ".png", ".gif"}:
+        if path.suffix in {".jar", ".png"}:
             continue
         content = path.read_text(encoding="utf-8")
         if SECRET.search(content):
@@ -116,8 +134,9 @@ def validate(tag: str | None = None) -> list[Path]:
             raise ValueError("发布标签检查要求干净工作区，请先提交或移走未提交改动")
         # NUL-delimited paths preserve Unicode filenames without Git's quoted escapes.
         tracked = {ROOT / name for name in git("ls-files", "-z").split("\0") if name}
-        if tracked != allowed:
-            raise ValueError("Git 跟踪文件与发布清单不同，请检查遗漏的源码或意外提交的文件")
+        if not allowed.issubset(tracked):
+            raise ValueError("Git 跟踪文件缺少发布清单中的源码，请检查遗漏的文件")
+        check_repository_extras(ROOT, {path.relative_to(ROOT).as_posix() for path in tracked - allowed})
     return files
 
 

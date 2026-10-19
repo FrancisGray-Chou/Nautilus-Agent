@@ -17,6 +17,32 @@ final class I18n {
         Language(String code, String flag, String label) { this.code=code; this.flag=flag; this.label=label; }
     }
     private static final String[][] ROWS = {
+        {"联网搜索", "聯網搜尋", "Webes keresés", "Web search"},
+        {"联网搜索已开启", "聯網搜尋已開啟", "Webes keresés bekapcsolva", "Web search on"},
+        {"联网搜索已关闭", "聯網搜尋已關閉", "Webes keresés kikapcsolva", "Web search off"},
+        {"正在切换联网搜索…", "正在切換聯網搜尋…", "Webes keresés váltása…", "Updating web search…"},
+        {"切换联网搜索失败，请重试", "切換聯網搜尋失敗，請重試", "Nem sikerült váltani; próbáld újra", "Could not update web search; try again"},
+        {"选择模型后可使用联网搜索", "選擇模型後可使用聯網搜尋", "Modellválasztás után elérhető a webes keresés", "Choose a model to use web search"},
+        {"回到最新 ↓", "回到最新 ↓", "Legújabb ↓", "Latest ↓"},
+        {"历史对话", "歷史對話", "Beszélgetések", "Chat history"},
+        {"暂无历史对话", "暫無歷史對話", "Nincs előzmény", "No conversations yet"},
+        {"新对话", "新對話", "Új beszélgetés", "New chat"},
+        {"删除此对话", "刪除此對話", "Beszélgetés törlése", "Delete conversation"},
+        {"已折叠", "已摺疊", "Összecsukva", "Collapsed"},
+        {"已展开", "已展開", "Kibontva", "Expanded"},
+        {"正在恢复对话…", "正在恢復對話…", "Beszélgetés betöltése…", "Restoring conversation…"},
+        {"历史对话已恢复", "歷史對話已恢復", "Beszélgetés visszaállítva", "Conversation restored"},
+        {"历史已打开，请选择可用模型继续", "歷史已開啟，請選擇可用模型繼續", "Válassz elérhető modellt a folytatáshoz", "History opened; choose an available model to continue"},
+        {"聊天记录保存失败", "聊天記錄儲存失敗", "Az előzmények mentése sikertelen", "Failed to save conversation"},
+        {"读取历史对话失败", "讀取歷史對話失敗", "Az előzmények nem olvashatók", "Failed to load conversations"},
+        {"正在删除对话…", "正在刪除對話…", "Beszélgetés törlése…", "Deleting conversation…"},
+        {"对话已删除", "對話已刪除", "Beszélgetés törölve", "Conversation deleted"},
+        {"拖动调整侧边栏；双击展开或收起", "拖曳調整側邊欄；按兩下展開或收起", "Húzással méretezés; dupla kattintással váltás", "Drag to resize; double-click to expand or collapse"},
+        {"主题", "主題", "Téma", "Theme"},
+        {"明亮", "明亮", "Világos", "Light"},
+        {"黑暗", "黑暗", "Sötét", "Dark"},
+        {"随系统", "隨系統", "Rendszer", "System"},
+        {"无法保存主题设置", "無法儲存主題設定", "A téma nem menthető", "Unable to save theme preference"},
         {"推荐", "推薦", "Javaslatok", "Recommend"},
         {"专家团队", "專家團隊", "Szakértői csapat", "Expert team"},
         {"推荐团队", "推薦團隊", "Ajánlott csapat", "Recommended team"},
@@ -187,7 +213,7 @@ final class I18n {
         {"明文存储与隐私说明", "明文儲存與私隱說明", "Titkosítatlan tárolás és adatvédelem", "Plaintext storage & privacy"},
         {"• 密钥不加密保存在下方 .env；同一系统账号下的程序或管理员仍可能读取。文件权限限制为当前用户，应用不会上传密钥给开发者。", "• 金鑰以未加密形式儲存在下方 .env；同一系統帳號的程式或管理員仍可能讀取。檔案權限限於目前使用者，應用程式不會向開發者上傳金鑰。", "• A kulcsok titkosítás nélkül kerülnek az alábbi .env fájlba. Azonos fiók programjai és rendszergazdák olvashatják. A fájl jogosultsága a jelenlegi felhasználóra korlátozott; az alkalmazás nem küldi a kulcsokat a fejlesztőnek.", "• Keys are stored unencrypted in the .env file below. Programs under the same account or administrators may read them. Permissions restrict access to the current user; the app does not upload keys to the developer."},
         {"• 发送消息时，密钥用于对应平台鉴权；问题与当前会话历史会发送至所选平台。切换平台后，已有上下文也会发送给新平台；Gemini 搜索还会使用 Google Search。相关保存期限、地域和费用由平台条款及你的 API 账号设置决定。", "• 傳送訊息時，金鑰用於平台驗證；問題與目前對話紀錄會傳送至所選平台。切換平台後，現有內容亦會傳送至新平台；Gemini 搜尋亦使用 Google Search。保留期限、地區及費用由平台條款和 API 帳號設定決定。", "• Üzenetküldéskor a kulcs hitelesít, a kérdés és a beszélgetés előzményei a kiválasztott szolgáltatóhoz kerülnek. Váltáskor a korábbi kontextus az új szolgáltatóhoz is eljut; a Gemini keresése Google Search szolgáltatást használ. A megőrzést, régiót és díjakat a szolgáltató feltételei és API-fiókod beállításai határozzák meg.", "• Keys authenticate requests; your question and conversation history are sent to the selected provider. Switching sends existing context to the new provider; Gemini search also uses Google Search. Retention, regions and costs depend on provider terms and your API account settings."},
-        {"• 本应用不自动持久保存聊天。密钥保留至你主动删除；删除本机副本不会撤销平台密钥，也不会删除平台已处理的数据或系统备份。", "• 本應用程式不會自動永久儲存對話。金鑰保留至你主動刪除；刪除本機副本不會撤銷平台金鑰，亦不會刪除平台已處理的資料或系統備份。", "• Az alkalmazás nem menti tartósan a beszélgetéseket. A kulcsokat törlésig megőrzi. A helyi másolat törlése nem vonja vissza a szolgáltatói kulcsot, és nem törli a feldolgozott adatokat vagy rendszermentéseket.", "• The app does not automatically persist chats. Keys remain until you delete them. Deleting local copies does not revoke provider keys or delete processed data or system backups."},
+        {"• 聊天记录、草稿和代码批注自动保存在本机历史对话，可在侧栏删除。密钥保留至你主动删除；删除本机副本不会撤销平台密钥，也不会删除平台已处理的数据或系统备份。", "• 對話記錄、草稿與程式碼批註自動儲存在本機，可在側邊欄刪除。金鑰保留至你主動刪除；刪除本機副本不會撤銷平台金鑰，亦不會刪除平台已處理的資料或系統備份。", "• Az előzményeket, vázlatokat és kódjegyzeteket a gépen menti; az oldalsávból törölhetők. A kulcsokat törlésig megőrzi. A helyi másolat törlése nem vonja vissza a szolgáltatói kulcsot, és nem törli a feldolgozott adatokat vagy rendszermentéseket.", "• Chats, drafts and code annotations are saved locally and can be deleted in the sidebar. Keys remain until you delete them. Deleting local copies does not revoke provider keys or delete processed data or system backups."},
         {"• 保存或删除密钥将开始新对话，避免在不同凭据之间继续发送旧历史。这是本机账号配置，不是云端账号登录。", "• 儲存或刪除金鑰會開始新對話，以免在不同憑證間傳送舊紀錄。這是本機帳號設定，並非雲端登入。", "• Kulcsok mentése vagy törlése új beszélgetést indít, így a régi előzmények nem kerülnek más hitelesítő adatokhoz. Ez helyi beállítás, nem felhőbejelentkezés.", "• Saving or deleting keys starts a new chat to prevent sending old history with different credentials. This configures your local account; it is not a cloud login."},
         {"当前本机账号：", "目前本機帳號：", "Helyi fiók: ", "Local account: "},
         {"存储位置：", "儲存位置：", "Tárolási hely: ", "Storage location: "},
@@ -276,10 +302,7 @@ final class I18n {
     }
     static Path preferencePath() {
         String test=System.getProperty("nautilus.language.path"); if(test!=null)return Path.of(test).toAbsolutePath();
-        String profile=System.getenv("NAUTILUS_PROFILE_DIR"); if(profile!=null)return Path.of(profile).resolve("language.txt").toAbsolutePath();
-        Path home=Path.of(System.getProperty("user.home"));
-        return (System.getProperty("os.name").startsWith("Mac") ? home.resolve("Library/Application Support/Nautilus")
-            : Path.of(System.getenv().getOrDefault("XDG_CONFIG_HOME",home.resolve(".config").toString())).resolve("Nautilus")).resolve("language.txt");
+        return PlatformPaths.profileDirectory().resolve("language.txt");
     }
     private static Language load() {
         try { String code=Files.readString(preferencePath()).strip(); for(Language l:Language.values())if(l.code.equals(code))return l; }

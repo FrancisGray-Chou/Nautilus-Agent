@@ -1,4 +1,5 @@
 //! Java 桌面端的独立入口；stdout 仅输出 JSON Lines。
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use std::io::{self, BufRead, Write};
 

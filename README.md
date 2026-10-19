@@ -2,23 +2,17 @@
 
 **StarSea Community · Rust 后端与 Java 桌面端的多模型 AI 对话应用**
 
-**Alpha 0.0.2-alpha.1** · 当前版本 `0.0.2-alpha.1` · 文档更新于 **2026-10-19**
+**Nautilus Alpha 0.0.2-alpha.2** · 当前版本 `0.0.2-alpha.2` · 文档更新于 **2026-10-19**
 
 Nautilus 将 DeepSeek、OpenAI、Gemini 和 Claude 集成在同一个桌面界面中。使用自己的 API key 连续对话、切换模型，也可以通过 **Mixture 混合模式**组建模型团队，完成任务规划、子节点执行、独立复核和最终汇总。
 
 当前为早期文本对话原型，需从源码构建。提供 Markdown 阅读、代码复制与修改、批注及相关上下文增强；自定义 Agent 工具执行仍处于原型阶段。
 
-[GitHub 仓库](https://github.com/FrancisGray-Chou/Nautilus-Agent) · [更新内容](更新内容.md) · [版本记录](CHANGELOG.md) · [桌面指南](desktop/README.md) · [测试说明](docs/TESTING.md) · [隐私与密钥](desktop/PRIVACY.md) · [发布流程](docs/RELEASING.md) · [示例演示](docs/nautilus-demo/README.md)
+[GitHub 仓库](https://github.com/FrancisGray-Chou/Nautilus-Agent) · [更新内容](更新内容.md) · [版本记录](CHANGELOG.md) · [桌面指南](desktop/README.md) · [测试说明](docs/TESTING.md) · [隐私与密钥](desktop/PRIVACY.md) · [发布流程](docs/RELEASING.md)
 
 ![Nautilus 桌面界面与 Claude 四个子模型的动态折叠菜单](docs/assets/claude.png)
 
-![示例演示Max专家模式](docs/nautilus-demo/assets/max-cyber-snake.gif)
-
 *界面来自离线 Swing 渲染测试，使用模拟数据，不代表真实模型回答。*
-
-*演示示例使用Nautilus·Mixture专家模式（规划：DeepSeek-V4.1-Flash + 执行：Gemini-4-Argon + 复核汇总:Claude-Fable 5.1）仅一轮生成产物*
-
---提示词：帮我生成一个赛博朋克风格的贪吃蛇小游戏，用一个HTML网页。--
 
 ## 功能概览
 
@@ -28,7 +22,7 @@ Nautilus 将 DeepSeek、OpenAI、Gemini 和 Claude 集成在同一个桌面界�
 | 动态子模型菜单 | DeepSeek、Gemini、Claude 在侧栏内平滑展开；支持键盘导航、外部点击收起和选中反馈 |
 | Mixture 协作 | 左列模型卡片，右列规划 / 执行 / 复核 / 汇总；拖放分工、替换、移除及排序 |
 | 实时进度 | Rust 通过本机 SSE 推送调度事件，显示实际模型、职责、子节点、状态与耗时 |
-| Gemini 搜索 | 独立 Gemini 预设启用 Google Search，展示返回的搜索词与来源 |
+| 联网搜索 | 四平台独立模型与桌面 Mixture 均支持搜索开关，展示返回的可核验来源 |
 | Markdown | 支持标题、列表、引用、表格、代码、删除线及可点击链接 |
 | 回复与代码操作 | 回复全文复制、代码单独复制、本地修改、行号批注及相关追问增强 |
 | 动态聊天反馈 | 思考中、生成中、总结中气泡；复制成功确认、按钮悬停与点击反馈 |
@@ -109,7 +103,7 @@ CLI 选择 Claude 后默认使用 Opus 5.5，可通过 `CLAUDE_MODEL` 指定其�
 - **桌面端密钥**仅来自用户在设置中保存的配置，不读取工程 `.env`，也不回退使用继承的 API key。
 - 桌面 DeepSeek 两个预设、Gemini 三个分支及 Claude 四个预设明确指定模型。OpenAI 默认使用 `gpt-5-mini`，可通过启动进程的 `OPENAI_MODEL` 环境变量覆盖。
 - CLI 环境变量优先于工程 `.env`。DeepSeek、OpenAI、Claude 分别读取 `DEEPSEEK_MODEL`、`OPENAI_MODEL`、`CLAUDE_MODEL`；默认值见 `.env.example`。
-- CLI 的 Gemini 子菜单固定预设并启用搜索；库接口 `with_provider(ModelProvider::Gemini)` 才读取 `GEMINI_MODEL` 与 `GEMINI_WEB_SEARCH`。后者设为 `false` 可使用纯对话兼容接口。
+- CLI 的 Gemini 子菜单固定模型预设，搜索遵循 `GEMINI_WEB_SEARCH`（未设置时默认开启）；库接口 `with_provider(ModelProvider::Gemini)` 同时读取 `GEMINI_MODEL`。搜索设为 `false` 时使用纯对话兼容接口。桌面输入框的“联网搜索”气泡可覆盖本次运行的搜索状态，默认读取环境变量或工程 `.env` 的非密钥搜索选项。
 - Gemini Auto 根据复杂任务关键词、代码围栏或至少 1200 字符的输入选择 Argon，否则选择 Flash。“继续”“继续处理”“continue”“go on”沿用上一轮模型；附带的代码上下文也可能影响路由。
 
 ### Claude 原生协议
@@ -119,6 +113,10 @@ Claude 使用 Anthropic 原生 `POST https://api.anthropic.com/v1/messages`，�
 每次 Claude 请求设置 `max_tokens=16384`。独立对话遇到不完整输出会附加提示；Mixture 按 `stop_reason` 判断阶段是否完整结束，未完整结束的汇总可交由其余已选模型接续。该输出上限不属于预算保护。
 
 模型正式名称使用 **Fable 5.1**。模型映射维护在 `src/config.rs`，原生适配位于 `src/llm/claude.rs`。
+
+桌面“联网搜索”同时开放给 DeepSeek Flash / Pro、OpenAI、Gemini 和 Claude，以及所有 Mixture 团队。DeepSeek 使用工具调用 Search API；OpenAI 使用 Responses `web_search`；Claude 使用原生 Web Search；Gemini 使用 Google Search。各平台仅使用自己的用户 key，保留当前选定模型；兼容旧配置名 `GEMINI_WEB_SEARCH` 作为整个桌面的默认开关。搜索权限、模型支持与工具费用由各平台账号决定，失败时显示错误，不静默改为离线回答。
+
+搜索协议：[DeepSeek Search API](https://api-docs.deepseek.com/zh-cn/api/search/)、[OpenAI Web Search](https://developers.openai.com/api/docs/guides/tools-web-search)、[Claude Web Search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool)。
 
 接口参考：[DeepSeek](https://api-docs.deepseek.com/)、[OpenAI](https://platform.openai.com/docs/models)、[Gemini](https://ai.google.dev/gemini-api/docs/models)、[Google Search](https://ai.google.dev/gemini-api/docs/google-search)、[Claude 模型目录](https://platform.claude.com/docs/en/models/overview)、[Anthropic Messages API](https://platform.claude.com/docs/en/api/messages/create)。
 
@@ -174,7 +172,7 @@ OpenAI 当前只提供一个入口，默认 `gpt-5-mini`，可由进程环境 `O
 
 > Mixture模式下，突然更换到独立模型，上下文记忆暂时无法生效。
 
-**本测试版暂不启用预算保护。** 不读取 `MIXTURE_*` 价格或预算配置，不按余额限制输出；平台限流、超时和输出上限仍然适用。`src/budget.rs` 保留供后续版本使用。混合调用当前不启用联网搜索或自定义工具，生成的代码及文稿在对话中呈现。
+**本测试版暂不启用预算保护。** 不读取 `MIXTURE_*` 价格或预算配置，不按余额限制输出；平台限流、超时和输出上限仍然适用。`src/budget.rs` 保留供后续版本使用。桌面混合调用可通过“联网搜索”气泡为各成员启用所属平台的搜索；CLI 混合调用默认关闭搜索，均不执行用户自定义工具，生成的代码及文稿在对话中呈现。
 
 ## 桌面交互
 
@@ -206,9 +204,10 @@ OpenAI 当前只提供一个入口，默认 `gpt-5-mini`，可由进程环境 `O
 | --- | --- |
 | macOS | `~/Library/Application Support/Nautilus/.env` |
 | Linux | `$XDG_CONFIG_HOME/Nautilus/.env`；未设置时为 `~/.config/Nautilus/.env` |
+| Windows | `%APPDATA%\Nautilus\.env`；回退至用户目录的 `AppData\Roaming\Nautilus\.env` |
 | 开发与测试 | `NAUTILUS_PROFILE_DIR` 可指定隔离目录 |
 
-目录权限 `0700`、文件权限 `0600`。应用没有新增云端账号，系统账号下的其他程序或管理员仍可能读取明文。聊天、点赞、代码修改与批注保存在内存，关闭后不自动恢复。
+macOS/Linux 使用目录权限 `0700`、文件权限 `0600`；Windows 使用账户专属的受保护 ACL。应用没有新增云端账号，系统账号下的其他程序或管理员仍可能读取明文。聊天、草稿、代码修改与批注保存在本机历史文件中，重启后可从“历史对话”恢复；点赞状态仅保留在内存。
 
 独立模型之间切换会将已有历史发送给新平台；Mixture 将问题、混合历史及前序工作记录交给已选平台。删除本地 key 不会撤销平台密钥或删除平台已处理的数据。完整说明见[隐私与密钥](desktop/PRIVACY.md)。
 
@@ -244,11 +243,13 @@ NAUTILUS_TEST_TRANSPORT=stdio ./desktop/test.sh
 
 上述为当前功能快照的既有验证记录。仅更新文档时不重新触发付费 API 请求；本轮文档检查结果见[更新内容](更新内容.md)。管道集成或离线 SSE 解析通过不等于真实 SSE socket 联调通过。GitHub CI 与其他运行环境的结果需另行确认，详见[测试说明](docs/TESTING.md)。
 
+Windows 的账户配置、原生 ACL 和安装器构建入口见 [Windows 指南](desktop/WINDOWS.md)。GitHub Actions 会在推送至 `main`／`master`、推送 `v*` 标签或提交 Pull Request 时自动构建 MSI，并上传安装器及 SHA-256，也支持手动触发。`scripts/package_windows.py` 在 Windows 默认生成 MSI，可用 `--installer-type exe` 生成 EXE；其他系统用 `--prepare-only` 导出明确标注的源码构建包。构建中间目录和安装包输出均位于工程之外。
+
 ## 当前限制
 
-- 尚无上游逐 Token 正文输出、停止生成按钮、聊天记录持久化或自动上下文裁剪。
+- 尚无上游逐 Token 正文输出、停止生成按钮或自动上下文裁剪。
 - 不支持文件、图片、音视频输入；自定义工具执行未完整接入。
-- Mixture 使用阶段接力协作，暂不启用预算保护或联网搜索。
+- Mixture 使用阶段接力协作，暂不启用预算保护；桌面各平台成员均支持联网搜索。
 - 本地追问建议与代码相关性判断可能误判，显式引用 `C1` 等编号更明确。
 - 桌面失败请求不提交该轮模型历史；CLI 失败请求仍可能保留用户输入。
 - 尚无安装器、签名应用和自动更新，模型可用性仍需使用测试者自己的 key 验证。
@@ -259,7 +260,7 @@ NAUTILUS_TEST_TRANSPORT=stdio ./desktop/test.sh
 | --- | --- |
 | `src/main.rs` | CLI 菜单及连续对话 |
 | `src/config.rs` | 平台配置、模型映射及 Gemini Auto 路由 |
-| `src/llm.rs`、`src/llm/` | 通用请求、Gemini 搜索与 Claude 原生协议 |
+| `src/llm.rs`、`src/llm/` | 通用请求、四平台联网搜索与 Claude 原生协议 |
 | `src/agent.rs`、`src/message.rs`、`src/logbook.rs` | 会话、消息及历史 |
 | `src/mixture.rs`、`src/progress.rs` | 协作调度及阶段事件 |
 | `src/bridge.rs`、`src/sse.rs`、`src/bin/nautilus-chat-bridge.rs` | 桌面桥接、HTTP SSE 及管道入口 |
@@ -268,7 +269,7 @@ NAUTILUS_TEST_TRANSPORT=stdio ./desktop/test.sh
 | [桌面依赖](desktop/lib/README.md) | CommonMark JAR、哈希与第三方许可 |
 | [更新内容](更新内容.md)、[版本记录](CHANGELOG.md) | 当前开发更新及历史版本 |
 | [测试说明](docs/TESTING.md)、[发布流程](docs/RELEASING.md) | 验证边界与源码打包 |
-| [Alpha 发布说明](docs/releases/v0.0.2-alpha.1.md) | 当前 Alpha 预发布说明 |
+| [Alpha 发布说明](docs/releases/v0.0.2-alpha.2.md) | 当前 Alpha 预发布说明 |
 
 发布准备可运行 `python3 scripts/package_release.py`，需要 Python 3.11+。文档更新不自动提交代码、创建标签或发布 GitHub Release。问题反馈请提供版本、系统、复现步骤和脱敏错误，不要附带 API key、`.env` 或私人对话。
 
@@ -279,7 +280,6 @@ NAUTILUS_TEST_TRANSPORT=stdio ./desktop/test.sh
 
 发布至 GitHub：在已登录 GitHub CLI 且可正常联网的本机终端运行 `python3 scripts/publish_github.py --publish`。脚本保留远端历史，上传完整源码，等待 CI 后创建新标签和 Pre-release；不会覆盖已有版本。不带参数仅执行离线预览，详见[发布流程](docs/RELEASING.md)。
 
+### 侧栏与本地历史
 
-## 生成作品演示
-
-[查看生成作品、模型组合与实际运行动图](docs/nautilus-demo/README.md)
+桌面侧栏支持拖动调宽、模型图标模式，以及默认展开的“模型空间”和默认折叠的“历史对话”。聊天记录自动保存，历史条目标明已使用的平台类别与具体子模型，点击即可恢复对话、草稿和代码批注并继续聊天。详见[桌面端说明](desktop/README.md#可拉伸侧栏与历史对话)。

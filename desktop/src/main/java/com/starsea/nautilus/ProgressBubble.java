@@ -10,17 +10,17 @@ import javax.swing.*;
 @SuppressWarnings("serial")
 final class ProgressBubble extends Theme.Surface {
     private static final class Step {
-        ChatService.Progress event;long received;
+        ChatService.Progress event;long received;int wrappedWidth=-1;String wrappedText="";List<String> wrapped=List.of();
         Step(ChatService.Progress e){update(e);}
-        void update(ChatService.Progress e){event=e;received=System.nanoTime();}
+        void update(ChatService.Progress e){event=e;received=System.nanoTime();wrappedWidth=-1;}
         long elapsed(){return event.elapsedMs()+(event.status().equals("running")?(System.nanoTime()-received)/1_000_000:0);}
     }
     private final LinkedHashMap<String,Step> steps=new LinkedHashMap<>();
     private final long started=System.nanoTime();
-    private final Timer timer=new Timer(Motion.FRAME_MS,e->tick());
+    private final Motion.Loop timer=new Motion.Loop(e->tick());
     private boolean finished,success;
     private long total,lastClockSecond=-1;
-    ProgressBubble(){super(new Color(0x171D2D),new Color(0x3C3652),20);setName("chat-progress");I18n.tooltip(this,"实时协作进度");timer.start();}
+    ProgressBubble(){super(Theme.color(0x171D2D,0xF1F0FA),Theme.color(0x3C3652,0xD9D1EC),20);setName("chat-progress");I18n.tooltip(this,"实时协作进度");timer.start();}
     void update(ChatService.Progress event){
         if(finished)return;
         steps.compute(event.stepId(),(key,step)->{if(step==null)return new Step(event);step.update(event);return step;});
@@ -46,14 +46,18 @@ final class ProgressBubble extends Theme.Surface {
     static String duration(long ms){long seconds=Math.max(0,ms)/1000;return String.format(java.util.Locale.ROOT,"%02d:%02d:%02d",seconds/3600,(seconds/60)%60,seconds%60);}
     private static List<String> wrap(String text,FontMetrics fm,int width){
         List<String> lines=new ArrayList<>();StringBuilder line=new StringBuilder();
+        int lineWidth=0;
         for(int cp:text.codePoints().toArray()){
-            String c=new String(Character.toChars(cp));
-            if(cp=='\n'||(!line.isEmpty()&&fm.stringWidth(line+c)>width)){lines.add(line.toString());line.setLength(0);if(cp=='\n')continue;}
-            line.append(c);
+            int advance=fm.charWidth(cp);
+            if(cp=='\n'||(!line.isEmpty()&&lineWidth+advance>width)){lines.add(line.toString());line.setLength(0);lineWidth=0;if(cp=='\n')continue;}
+            line.appendCodePoint(cp);lineWidth+=advance;
         }if(!line.isEmpty())lines.add(line.toString());return lines;
     }
     private String message(Step step){return step.event.nodeCount()!=null?I18n.t("已将任务拆分为 ")+step.event.nodeCount()+I18n.t(" 个子节点"):I18n.t(step.event.message());}
-    int heightFor(int width){int height=66;FontMetrics fm=getFontMetrics(Theme.font(12,false));for(Step s:steps.values())height+=34+wrap(message(s),fm,Math.max(100,width-72)).size()*18;return height+8;}
+    private List<String> lines(Step step,FontMetrics metrics,int width){
+        String text=message(step);if(step.wrappedWidth!=width||!step.wrappedText.equals(text)){step.wrapped=wrap(text,metrics,width);step.wrappedWidth=width;step.wrappedText=text;}return step.wrapped;
+    }
+    int heightFor(int width){int height=66;FontMetrics fm=getFontMetrics(Theme.font(12,false));for(Step s:steps.values())height+=34+lines(s,fm,Math.max(100,width-72)).size()*18;return height+8;}
     @Override protected void paintComponent(Graphics graphics){
         super.paintComponent(graphics);Graphics2D g=(Graphics2D)graphics.create();Theme.antialias(g);int width=getWidth();
         g.setColor(finished?(success?Theme.MINT:Theme.ERROR):Theme.ACCENT);g.setStroke(new BasicStroke(2f));
@@ -68,10 +72,10 @@ final class ProgressBubble extends Theme.Surface {
             String state=step.event.status();Color color=state.equals("running")?Theme.ACCENT:state.equals("completed")?Theme.MINT:Theme.ERROR;
             g.setColor(color);g.fillOval(21,y-10,6,6);g.setFont(Theme.font(12,true));String label="["+step.event.role()+(step.event.roleTitle().isBlank()?"":" · "+step.event.roleTitle())+" | "+step.event.model()+"]";
             String elapsed=I18n.t("耗时: ")+duration(step.elapsed());int available=width-90-g.getFontMetrics(Theme.font(10,false)).stringWidth(elapsed);
-            while(label.length()>4&&g.getFontMetrics().stringWidth(label)>available)label=label.substring(0,label.length()-2)+"…";
+            label=ConversationList.fit(g,label,Math.max(20,available));
             g.drawString(label,40,y);g.setFont(Theme.font(10,false));g.setColor(Theme.MUTED);g.drawString(elapsed,width-22-g.getFontMetrics().stringWidth(elapsed),y);
             g.setFont(Theme.font(12,false));g.setColor(Theme.TEXT);y+=20;
-            for(String line:wrap(message(step),body,Math.max(100,width-72))){g.drawString(line,40,y);y+=18;}
+            for(String line:lines(step,body,Math.max(100,width-72))){g.drawString(line,40,y);y+=18;}
             y+=14;
         }
         g.dispose();

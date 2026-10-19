@@ -20,6 +20,7 @@ use crate::{
 
 mod claude;
 mod gemini;
+mod search;
 
 #[derive(Debug, PartialEq)]
 pub enum LLMResponse {
@@ -40,6 +41,9 @@ pub struct LLMClient {
     mock: Option<(std::sync::Arc<std::sync::Mutex<Vec<Value>>>, bool)>,
     #[cfg(test)]
     mock_reply: Option<String>,
+    #[cfg(test)]
+    mock_search_responses:
+        Option<std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<Value>>>>,
 }
 
 impl LLMClient {
@@ -88,6 +92,8 @@ impl LLMClient {
             mock: None,
             #[cfg(test)]
             mock_reply: None,
+            #[cfg(test)]
+            mock_search_responses: None,
         })
     }
 
@@ -116,7 +122,11 @@ impl LLMClient {
     }
 
     pub fn web_search_enabled(&self) -> bool {
-        self.provider == ModelProvider::Gemini && self.web_search
+        self.web_search
+    }
+
+    pub(crate) fn set_web_search(&mut self, enabled: bool) {
+        self.web_search = enabled;
     }
 
     pub fn gemini_mode(&self) -> Option<GeminiMode> {
@@ -139,6 +149,14 @@ impl LLMClient {
         history: &[Message],
         _tools: &HashMap<String, Box<dyn Tool>>,
     ) -> Result<LLMResponse, String> {
+        if self.web_search_enabled() {
+            let (text, complete) = self.chat_search_complete(history).await?;
+            return Ok(LLMResponse::Text(if complete {
+                text
+            } else {
+                format!("{text}\n\n⚠️ 输出未完整结束，请继续生成或缩小任务范围。")
+            }));
+        }
         if self.provider == ModelProvider::Claude {
             let (text, complete) = self
                 .send_collaborative(self.build_request(history)?)
@@ -148,9 +166,6 @@ impl LLMClient {
             } else {
                 format!("{text}\n\n⚠️ Claude 输出未完整结束，请继续生成或缩小任务范围。")
             }));
-        }
-        if self.web_search_enabled() {
-            return self.chat_with_google_search(history).await;
         }
         let request = self.build_request(history)?;
         let response = self
@@ -183,6 +198,9 @@ impl LLMClient {
         &self,
         history: &[Message],
     ) -> Result<(String, bool), String> {
+        if self.web_search_enabled() {
+            return self.chat_search_complete(history).await;
+        }
         self.send_collaborative(self.build_request(history)?).await
     }
 

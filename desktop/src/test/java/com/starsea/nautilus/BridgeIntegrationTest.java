@@ -21,10 +21,28 @@ public final class BridgeIntegrationTest {
             try { client.saveCredentials(Map.of("deepseek", "test-account-deepseek"), false); throw new AssertionError("notice acknowledgement missing"); }
             catch (IOException expected) { /* expected */ }
             ChatService.Credentials credentials = client.saveCredentials(Map.of("deepseek", "test-account-deepseek", "openai", "test-account-openai", "gemini", "test-account-gemini", "claude", "test-account-claude"), true);
+            boolean expectedSearch=Boolean.parseBoolean(System.getenv("GEMINI_WEB_SEARCH"));
+            if (client.webSearch().defaultEnabled()!=expectedSearch || client.webSearch().available()) throw new AssertionError("default before selection");
+            ChatService.Selection search = client.select("gemini-flash");
+            if (search.search()!=expectedSearch || !search.searchState().available()) throw new AssertionError("search default not applied");
+            if (client.setWebSearch(false).enabled()) throw new AssertionError("search not disabled");
+            if (client.select("gemini-auto").search()) throw new AssertionError("switch reset search preference");
+            client.reset(); if (client.webSearch().enabled()) throw new AssertionError("reset lost search preference");
+            if (!client.setWebSearch(true).enabled()) throw new AssertionError("search not enabled");
+            for(String id:new String[]{"deepseek-flash","deepseek-pro","openai","claude-opus","claude-fable","claude-sonnet","claude-haiku"}) {
+                ChatService.Selection selected=client.select(id);
+                if(!selected.searchState().available()||!selected.search())throw new AssertionError("search unavailable: "+id);
+                if(client.setWebSearch(false).enabled())throw new AssertionError("search not disabled: "+id);
+                if(!client.setWebSearch(true).enabled())throw new AssertionError("search not enabled: "+id);
+            }
+            if(!client.configureMixture(java.util.List.of("deepseek-flash","openai","claude-sonnet")).search())throw new AssertionError("non-Gemini Mixture search unavailable");
+            if (!client.configureMixture(java.util.List.of("deepseek-pro","gemini-auto")).search()) throw new AssertionError("Mixture search not enabled");
+            if (!client.setWebSearch(false).available() || client.webSearch().enabled()) throw new AssertionError("Mixture search toggle failed");
+            client.setWebSearch(true);
             Path file = Path.of(credentials.storagePath());
             if (!file.startsWith(Path.of(System.getenv("NAUTILUS_PROFILE_DIR")))) throw new AssertionError("wrong account path");
             if (!Files.readString(file).contains("test-account-deepseek")) throw new AssertionError("plaintext .env not written");
-            if (!Files.getPosixFilePermissions(file).equals(PosixFilePermissions.fromString("rw-------"))) throw new AssertionError("unsafe file permissions");
+            if (Files.getFileAttributeView(file,java.nio.file.attribute.PosixFileAttributeView.class)!=null && !Files.getPosixFilePermissions(file).equals(PosixFilePermissions.fromString("rw-------"))) throw new AssertionError("unsafe file permissions");
             if (credentials.toString().contains("test-account-deepseek")) throw new AssertionError("key echoed in status");
             for (String id : new String[]{"deepseek", "deepseek-flash", "deepseek-pro", "openai", "gemini-flash", "gemini-argon", "gemini-auto", "claude-opus", "claude-fable", "claude-sonnet", "claude-haiku"}) {
                 if (!client.select(id).modelId().equals(id)) throw new AssertionError("wrong selection");
@@ -104,6 +122,14 @@ public final class BridgeIntegrationTest {
             if (progress.stream().anyMatch(p -> p.role().equals("Summarizer") && !p.model().equals("deepseek-v4-pro"))) throw new AssertionError("unapproved role takeover");
             try { client.configureMixture(new ChatService.MixtureTeam(java.util.List.of(customTeam.members().get(0)), false)); throw new AssertionError("missing summarizer accepted"); }
             catch (IOException expected) { /* preserve current team on invalid config */ }
+            java.util.List<Map<String,String>> savedSingle=java.util.List.of(Map.of("role","user","text","恢复中文问题\n🌊"),Map.of("role","assistant","text","恢复单模型回答"));
+            java.util.List<Map<String,String>> savedMixture=java.util.List.of(Map.of("role","user","text","混合问题"),Map.of("role","assistant","text","混合回答"));
+            if(!client.restoreConversation("deepseek-pro",savedSingle,savedMixture,customTeam).modelId().equals("deepseek-pro"))throw new AssertionError("single history restore failed");
+            if(!client.restoreConversation("mixture",savedSingle,savedMixture,customTeam).model().contains("claude-sonnet-5-5"))throw new AssertionError("team restore failed");
+            try{client.restoreConversation("unknown",savedSingle,savedMixture,null);throw new AssertionError("invalid restore model accepted");}catch(IOException expected){ /* previous context remains live */ }
+            if(client.restoreConversation(null,savedSingle,savedMixture,customTeam)!=null)throw new AssertionError("read-only history selected a model");
+            client.select("openai");
+            try{client.restoreConversation("openai",savedSingle.subList(0,1),savedMixture,null);throw new AssertionError("unpaired context accepted");}catch(IOException expected){ /* malformed imports are transactional */ }
             client.reset();
             if (!client.select("deepseek").modelId().equals("deepseek")) throw new AssertionError("recovery failed");
             client.saveCredentials(Map.of("deepseek", "rotated-account-key"), true);
@@ -123,7 +149,9 @@ public final class BridgeIntegrationTest {
             Path file = Path.of(reopened.credentials().storagePath());
             reopened.deleteCredentials("all");
             if (Files.exists(file)) throw new AssertionError("credential file not deleted");
+            java.util.List<Map<String,String>> history=java.util.List.of(Map.of("role","user","text","offline history"),Map.of("role","assistant","text","saved answer"));
+            if(reopened.restoreConversation(null,history,java.util.List.of(),null)!=null)throw new AssertionError("history requires a credential");
         }
-        System.out.println("PASS: Java/Rust account credentials, plaintext persistence, 0600 permissions, rotation, deletion, no developer-key fallback and chat protocol");
+        System.out.println("PASS: Java/Rust account credentials, plaintext persistence, 0600 permissions, rotation, deletion, no developer-key fallback and restored conversation protocol");
     }
 }

@@ -28,7 +28,7 @@ class ModelSelector extends JPanel implements I18n.Localized {
     private final Motion.Tween disclosure = new Motion.Tween(0);
     private long lastTick;
     private final Header header = new Header();
-    private final Timer animation = new Timer(Motion.FRAME_MS, event -> tick());
+    private final Motion.Loop animation = new Motion.Loop(event -> tick());
     private final AWTEventListener outsideClick = event -> {
         if (expanded && event instanceof MouseEvent mouse && mouse.getID() == MouseEvent.MOUSE_PRESSED
                 && mouse.getSource() instanceof Component source && !SwingUtilities.isDescendingFrom(source, this)) setExpanded(false);
@@ -40,7 +40,7 @@ class ModelSelector extends JPanel implements I18n.Localized {
     ModelSelector(String provider, String prefix, List<ChatService.Model> options, Consumer<String> select, boolean compact) {
         headerHeight = compact ? 44 : 76;
         this.provider = provider; this.prefix = prefix;
-        accent = prefix.endsWith("deepseek") ? new Color(0x8AB2FF) : prefix.endsWith("claude") ? new Color(0xDFA88C) : Theme.ACCENT;
+        accent = prefix.endsWith("deepseek") ? Theme.color(0x8AB2FF,0x3566B8) : prefix.endsWith("claude") ? Theme.color(0xDFA88C,0xA65832) : Theme.ACCENT;
         this.options = List.copyOf(options);
         confirmedId = options.isEmpty() ? null : options.get(0).id();
         setName(prefix + "-models"); setOpaque(false); setLayout(null); setAlignmentX(LEFT_ALIGNMENT);
@@ -130,14 +130,14 @@ class ModelSelector extends JPanel implements I18n.Localized {
     }
     @Override protected void paintComponent(Graphics graphics) {
         Graphics2D g = (Graphics2D) graphics.create(); Theme.antialias(g);
-        Color fill = active ? new Color(0x29283F) : blend(Theme.SIDE, Theme.SURFACE, Math.max(header.hover, reveal));
+        Color fill = active ? Theme.SELECTED : blend(Theme.SIDE, Theme.SURFACE, Math.max(header.hover, reveal));
         g.setColor(fill); g.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 16, 16);
         if (active || reveal > 0) {
-            g.setColor(active ? new Color(0x7769A6) : blend(Theme.SIDE, Theme.LINE, reveal));
+            g.setColor(active ? Theme.SELECTED_LINE : blend(Theme.SIDE, Theme.LINE, reveal));
             g.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 16, 16);
         }
         if (reveal > 0) {
-            g.setColor(new Color(0x49415F)); g.drawLine(28, headerHeight + 9, 28, getHeight() - 18);
+            g.setColor(Theme.color(0x49415F,0xC6BBDC)); g.drawLine(28, headerHeight + 9, 28, getHeight() - 18);
         }
         g.dispose();
     }
@@ -216,7 +216,7 @@ class ModelSelector extends JPanel implements I18n.Localized {
             Graphics2D g = (Graphics2D) graphics.create(); Theme.antialias(g);
             boolean selected = option.id().equals(confirmedId);
             g.setComposite(AlphaComposite.SrcOver.derive((float) reveal));
-            g.setColor(selected ? new Color(0x38324F) : blend(new Color(0x202637), new Color(0x303349), hover));
+            g.setColor(selected ? Theme.color(0x38324F,0xDDD3F1) : blend(Theme.color(0x202637,0xF8F9FD), Theme.color(0x303349,0xEBE8F6), hover));
             g.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
             g.setFont(Theme.font(12, true)); g.setColor(selected ? accent : Theme.TEXT);
             g.drawString(fit(g, I18n.t(shortName(option)), getWidth() - 38), 12, 18);

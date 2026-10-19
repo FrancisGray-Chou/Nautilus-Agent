@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 from contextlib import redirect_stdout
 import io
+import os
 from pathlib import Path
 
 import check_release as release
@@ -52,6 +53,75 @@ class ReleaseBoundaryTest(unittest.TestCase):
         self.assertIn("更新内容.md", selected)
         self.assertNotIn(".env", selected)
         self.assertNotIn("desktop/out/stale.class", selected)
+
+    def test_demo_is_repository_only_and_unknown_remote_files_still_fail(self):
+        demo = self.root / "docs/nautilus-demo/README.md"
+        demo.parent.mkdir(parents=True)
+        demo.write_text("[demo](examples/demo.html)\n")
+        selected = {path.relative_to(self.root).as_posix() for path in release.validate()}
+        self.assertNotIn("docs/nautilus-demo/README.md", selected)
+        release.check_repository_extras(self.root, {"docs/nautilus-demo/README.md"})
+        with self.assertRaisesRegex(ValueError, "白名单以外"):
+            release.check_repository_extras(self.root, {"unexpected.txt"})
+        demo.unlink()
+        demo.symlink_to(self.root / "README.md")
+        with self.assertRaisesRegex(ValueError, "符号链接"):
+            release.check_repository_extras(self.root, {"docs/nautilus-demo/README.md"})
+
+    def test_publish_preserves_remote_demo_and_old_release_through_tag_validation(self):
+        source_files = release.validate()
+        preserved = {
+            "docs/nautilus-demo/README.md": b"[example](examples/demo.html)\n",
+            "docs/nautilus-demo/examples/demo.html": b"<!doctype html><title>Demo</title>",
+            "docs/nautilus-demo/assets/demo.gif": b"GIF89a mock demo",
+            "docs/nautilus-demo/sources.json": b'{"preserve":true}',
+            "docs/releases/v0.0.1-alpha.2.md": b"# Historical release\n",
+        }
+        with tempfile.TemporaryDirectory(prefix="nautilus-local-remote-") as temporary:
+            seed = Path(temporary) / "seed"
+            shutil.copytree(self.root, seed)
+            # Reproduce importing a new CRLF Windows launcher into an older
+            # repository that has neither the launcher nor line-ending rules.
+            (seed / ".gitattributes").unlink()
+            (seed / "desktop/build-windows.cmd").unlink()
+            for name, content in preserved.items():
+                target = seed / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+            def git(*args):
+                return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+            git("init", "-q", str(seed))
+            git("-C", str(seed), "add", ".")
+            git("-C", str(seed), "-c", "user.name=Release Test", "-c", "user.email=release@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "existing remote")
+            remote = Path(temporary) / "remote.git"
+            git("clone", "--bare", str(seed), str(remote))
+            readme = self.root / "README.md"
+            readme.write_text(readme.read_text() + "\nCurrent release source update.\n")
+            real_run = publish_github.run
+            def local_run(*args, **kwargs):
+                if args[0] == "gh":
+                    return ""
+                return real_run(*args, **kwargs)
+            identity = {"GIT_AUTHOR_NAME": "Release Test", "GIT_AUTHOR_EMAIL": "release@example.invalid",
+                        "GIT_COMMITTER_NAME": "Release Test", "GIT_COMMITTER_EMAIL": "release@example.invalid",
+                        "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "commit.gpgsign", "GIT_CONFIG_VALUE_0": "false",
+                        "GIT_CONFIG_KEY_1": "tag.gpgsign", "GIT_CONFIG_VALUE_1": "false"}
+            with patch.object(publish_github, "ROOT", self.root), patch.object(publish_github, "REMOTE", str(remote)), \
+                 patch.object(publish_github, "run", side_effect=local_run), patch.object(publish_github, "wait_for_ci"), \
+                 patch.object(publish_github.shutil, "which", return_value="test-command"), patch.dict(os.environ, identity):
+                publish_github.publish(source_files, release.version())
+            tag = "v" + release.version()
+            for name, expected in preserved.items():
+                actual = subprocess.run(["git", "--git-dir", str(remote), "show", f"{tag}:{name}"], check=True, capture_output=True).stdout
+                self.assertEqual(actual, expected)
+            launcher = subprocess.run(["git", "--git-dir", str(remote), "show", f"{tag}:desktop/build-windows.cmd"], check=True, capture_output=True).stdout
+            self.assertNotIn(b"\r", launcher)
+            self.assertIn(b"@echo off\n", launcher)
+            checkout = next((self.root / "dist").glob("github-publish-*"))
+            self.assertEqual((checkout / "README.md").read_bytes(), (self.root / "README.md").read_bytes())
+            import zipfile
+            with zipfile.ZipFile(checkout / "dist" / f"nautilus-{release.version()}-source.zip") as archive:
+                self.assertFalse(any("/docs/nautilus-demo/" in name for name in archive.namelist()))
 
     def test_version_mismatch_is_rejected(self):
         path = self.root / "Cargo.lock"

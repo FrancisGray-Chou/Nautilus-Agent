@@ -13,10 +13,11 @@ public final class NautilusDesktop {
         if (GraphicsEnvironment.isHeadless()) {
             System.err.println("Nautilus 桌面端需要图形桌面环境。"); return;
         }
-        Path root = args.length == 0 ? Path.of(".") : Path.of(args[0]);
+        Path root = args.length == 0 ? PlatformPaths.applicationRoot() : Path.of(args[0]);
         SwingUtilities.invokeLater(() -> {
             UIManager.put("Label.font", Theme.font(13, false));
             JFrame frame = new JFrame("Nautilus · AI Chat");
+            NautilusIcon.install(frame);
             ChatPanel panel = new ChatPanel(new BridgeClient(root));
             frame.setContentPane(panel); frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
             frame.setMinimumSize(new Dimension(1000, 720)); frame.setSize(1240, 860); frame.setLocationRelativeTo(null);

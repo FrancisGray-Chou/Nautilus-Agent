@@ -43,10 +43,23 @@ impl LLMClient {
         }))
     }
 
-    pub(super) async fn chat_with_google_search(
+    pub(super) async fn chat_google_search_complete(
         &self,
         history: &[Message],
-    ) -> Result<LLMResponse, String> {
+    ) -> Result<(String, bool), String> {
+        #[cfg(test)]
+        if let Some((requests, fail)) = &self.mock {
+            requests
+                .lock()
+                .unwrap()
+                .push(self.build_gemini_search_request(history)?);
+            if *fail {
+                return Err("模拟服务不可用".into());
+            }
+            return Self::parse_search_completion(
+                &json!({"candidates":[{"finishReason":"STOP","content":{"parts":[{"text": self.mock_reply.as_deref().unwrap_or("离线搜索回答")} ]}}]}),
+            );
+        }
         let response = self
             .client
             .post(self.gemini_search_url()?)
@@ -66,7 +79,17 @@ impl LLMClient {
                 .unwrap_or("未返回错误详情");
             return Err(format!("Gemini 搜索请求失败 ({status}): {message}"));
         }
-        Self::parse_gemini_search_response(&body)
+        Self::parse_search_completion(&body)
+    }
+
+    fn parse_search_completion(body: &Value) -> Result<(String, bool), String> {
+        let LLMResponse::Text(text) = Self::parse_gemini_search_response(body)? else {
+            return Err("Gemini 搜索返回了非文本内容".into());
+        };
+        Ok((
+            text,
+            body["candidates"][0]["finishReason"].as_str() == Some("STOP"),
+        ))
     }
 
     fn parse_gemini_search_response(body: &Value) -> Result<LLMResponse, String> {
@@ -145,6 +168,29 @@ mod tests {
             web_search: true,
         })
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn toggle_changes_actual_collaborative_request_and_preserves_history() {
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut client = client(GEMINI_FLASH_MODEL).test_transport(requests.clone(), false);
+        let history = vec![
+            Message::user("问题"),
+            Message::assistant("之前的回答"),
+            Message::user("追问"),
+        ];
+        assert!(client.chat_collaborative(&history).await.unwrap().1);
+        client.set_web_search(false);
+        client.chat_collaborative(&history).await.unwrap();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests[0]["tools"], json!([{"google_search":{}}]));
+        assert_eq!(requests[0]["contents"].as_array().unwrap().len(), 3);
+        assert_eq!(requests[1]["messages"].as_array().unwrap().len(), 3);
+        assert!(requests[1].get("tools").is_none());
+        for reason in ["STOP", "MAX_TOKENS", "SAFETY"] {
+            let (_, complete) = LLMClient::parse_search_completion(&json!({"candidates":[{"finishReason":reason,"content":{"parts":[{"text":"部分回答"}]}}]})).unwrap();
+            assert_eq!(complete, reason == "STOP");
+        }
     }
 
     #[test]

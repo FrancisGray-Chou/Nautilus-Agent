@@ -309,6 +309,26 @@ impl Mixture {
     pub fn inherit_history(&mut self, previous: &Self) {
         self.history = previous.history.clone();
     }
+    #[cfg(test)]
+    pub(crate) fn history(&self) -> &[Message] {
+        &self.history
+    }
+    pub(crate) fn restore_history(&mut self, history: Vec<Message>) {
+        self.history = history;
+    }
+    pub(crate) fn supports_web_search(&self) -> bool {
+        !self.candidates.is_empty()
+    }
+    pub(crate) fn web_search_enabled(&self) -> bool {
+        self.candidates
+            .iter()
+            .any(|candidate| candidate.client.web_search_enabled())
+    }
+    pub(crate) fn set_web_search(&mut self, enabled: bool) {
+        for candidate in &mut self.candidates {
+            candidate.client.set_web_search(enabled);
+        }
+    }
     pub fn reset(&mut self) {
         self.history.clear();
         for c in &mut self.candidates {
@@ -647,6 +667,50 @@ impl Mixture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn search_enabled_team_uses_each_provider_and_keeps_completed_history() {
+        let (mut team, requests) = mock_team(
+            &[
+                "deepseek".into(),
+                "openai".into(),
+                "gemini".into(),
+                "claude-sonnet".into(),
+            ],
+            None,
+        )
+        .await;
+        assert!(team.supports_web_search());
+        team.set_web_search(true);
+        team.chat("核实信息", &mut |_| {}).await.unwrap();
+        assert!(team.last_completed());
+        assert_eq!(team.history().len(), 2);
+        let requests = requests.lock().unwrap();
+        assert!(
+            requests
+                .iter()
+                .any(|request| request["tools"] == serde_json::json!([{"google_search":{}}]))
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|request| request["tools"][0]["function"]["name"] == "web_search")
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|request| request["tools"][0]["type"] == "web_search")
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|request| request["tools"][0]["type"] == "web_search_20250305")
+        );
+        drop(requests);
+        team.set_web_search(false);
+        assert!(!team.web_search_enabled());
+        assert_eq!(team.history().len(), 2);
+    }
 
     #[test]
     fn custom_roles_validate_explicit_stage_goals_and_unicode_limits() {

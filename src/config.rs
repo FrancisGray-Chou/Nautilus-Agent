@@ -188,9 +188,16 @@ impl LLMConfig {
         mode: Option<GeminiMode>,
     ) -> Result<Self, String> {
         let (key_name, _, _) = provider.env_names();
+        let search_default = if provider == ModelProvider::Gemini {
+            Some(desktop_search_default()?)
+        } else {
+            None
+        };
         let lookup = |name: &str| {
             if name == key_name {
                 Some(key.to_string())
+            } else if name == "GEMINI_WEB_SEARCH" {
+                search_default.map(|enabled| enabled.to_string())
             } else if provider == ModelProvider::Claude && name == "CLAUDE_MODEL" {
                 // Desktop choices explicitly select a preset; CLI still reads CLAUDE_MODEL.
                 None
@@ -207,7 +214,7 @@ impl LLMConfig {
         Self::from_lookup(provider, |name| std::env::var(name).ok())
     }
 
-    /// 菜单预设明确指定模型并开启搜索，不受旧的 GEMINI_MODEL 配置影响。
+    /// 菜单预设指定模型，搜索仍遵循 GEMINI_WEB_SEARCH。
     pub fn for_gemini_mode(mode: GeminiMode) -> Result<Self, String> {
         Self::from_gemini_lookup(mode, |name| std::env::var(name).ok())
     }
@@ -218,7 +225,6 @@ impl LLMConfig {
     ) -> Result<Self, String> {
         Self::from_lookup(ModelProvider::Gemini, |name| match name {
             "GEMINI_MODEL" => Some(mode.model_for_task("", GEMINI_FLASH_MODEL).to_string()),
-            "GEMINI_WEB_SEARCH" => Some("true".into()),
             _ => lookup(name),
         })
     }
@@ -241,11 +247,7 @@ impl LLMConfig {
             return Err(format!("{model_name} 不能为空"));
         }
         let web_search = if provider == ModelProvider::Gemini {
-            match lookup("GEMINI_WEB_SEARCH").as_deref().map(str::trim) {
-                None | Some("true" | "1") => true,
-                Some("false" | "0") => false,
-                _ => return Err("GEMINI_WEB_SEARCH 必须为 true/false 或 1/0".into()),
-            }
+            parse_search_default(lookup("GEMINI_WEB_SEARCH").as_deref())?
         } else {
             false
         };
@@ -258,9 +260,55 @@ impl LLMConfig {
     }
 }
 
+/// Desktop credentials remain isolated; only this non-secret preference is read.
+pub(crate) fn desktop_search_default() -> Result<bool, String> {
+    let from_file = || -> Option<String> {
+        dotenvy::from_path_iter(".env")
+            .ok()?
+            .filter_map(Result::ok)
+            .find_map(|(name, value)| (name == "GEMINI_WEB_SEARCH").then_some(value))
+    };
+    resolve_search_default(std::env::var("GEMINI_WEB_SEARCH").ok(), from_file)
+}
+
+fn resolve_search_default(
+    environment: Option<String>,
+    file: impl FnOnce() -> Option<String>,
+) -> Result<bool, String> {
+    parse_search_default(environment.or_else(file).as_deref())
+}
+
+fn parse_search_default(value: Option<&str>) -> Result<bool, String> {
+    match value.map(str::trim) {
+        None | Some("true" | "1") => Ok(true),
+        Some("false" | "0") => Ok(false),
+        _ => Err("GEMINI_WEB_SEARCH 必须为 true/false 或 1/0".into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_defaults_use_environment_then_file_and_presets_respect_false() {
+        assert!(
+            resolve_search_default(Some("true".into()), || panic!("environment takes priority"))
+                .unwrap()
+        );
+        assert!(!resolve_search_default(None, || Some("0".into())).unwrap());
+        assert!(resolve_search_default(None, || None).unwrap());
+        assert!(resolve_search_default(Some("invalid".into()), || Some("true".into())).is_err());
+        for mode in [GeminiMode::FlashSearch, GeminiMode::Argon, GeminiMode::Auto] {
+            let config = LLMConfig::from_gemini_lookup(mode, |name| match name {
+                "GEMINI_API_KEY" => Some("offline-test".into()),
+                "GEMINI_WEB_SEARCH" => Some("false".into()),
+                _ => None,
+            })
+            .unwrap();
+            assert!(!config.web_search);
+        }
+    }
 
     #[test]
     fn gemini_presets_override_old_model_settings_and_enable_search() {
@@ -273,6 +321,8 @@ mod tests {
                 Some(
                     if name == "GEMINI_API_KEY" {
                         "test-key"
+                    } else if name == "GEMINI_WEB_SEARCH" {
+                        "true"
                     } else {
                         "invalid-old-setting"
                     }

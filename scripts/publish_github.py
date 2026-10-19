@@ -15,7 +15,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from check_release import ROOT, validate, version
+from check_release import ROOT, check_repository_extras, validate, version
 
 REPOSITORY = "FrancisGray-Chou/Nautilus-Agent"
 REMOTE = f"https://github.com/{REPOSITORY}.git"
@@ -63,9 +63,9 @@ def publish(files: list[Path], current: str) -> None:
         raise ValueError("远端没有可用默认分支，未提交或推送。")
     allowed = {source.relative_to(ROOT).as_posix() for source in files}
     tracked = set(run("git", "ls-files", "-z", cwd=checkout, capture=True).split("\0")) - {""}
-    extra = tracked - allowed
-    if extra:
-        raise ValueError("远端存在发布白名单以外的文件，未覆盖或删除：" + ", ".join(sorted(extra)))
+    preserved = check_repository_extras(checkout, tracked - allowed)
+    if preserved:
+        print(f"保留远端演示及历史发布文件：{len(preserved)} 个，不覆盖或删除。", flush=True)
     for source in files:
         destination = checkout / source.relative_to(ROOT)
         # A remote symlink must never redirect the source copy outside this checkout.

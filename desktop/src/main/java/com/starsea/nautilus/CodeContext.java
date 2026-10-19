@@ -40,12 +40,23 @@ final class CodeContext {
     void clear() { blocks.clear(); }
     List<Block> blocks() { return List.copyOf(blocks); }
 
-    Prepared prepare(String prompt) {
+    private List<Block> relevant(String prompt) {
         List<Block> relevant = new ArrayList<>();
         for (int i = blocks.size() - 1; i >= 0 && relevant.size() < 3; i--) {
             Block block = blocks.get(i);
             if ((block.hasContext() || explicitlyReferences(prompt, block)) && related(prompt, block, i == blocks.size() - 1)) relevant.add(block);
         }
+        return relevant;
+    }
+    String describe(String prompt){
+        List<Block> relevant=relevant(prompt);if(relevant.isEmpty())return "";
+        int remaining=24000;boolean shortened=false;
+        for(Block block:relevant){int allowance=Math.min(remaining,12000);shortened|=block.code.length()>allowance||block.note.length()>2000;remaining-=Math.min(block.code.length(),allowance);}
+        return description(relevant,shortened);
+    }
+    private static String description(List<Block> relevant,boolean shortened){return "本次附带 "+String.join("、",relevant.stream().map(block->block.id).toList())+" 的当前代码与批注"+(shortened?"（长内容已截断）":"");}
+    Prepared prepare(String prompt) {
+        List<Block> relevant=relevant(prompt);
         if (relevant.isEmpty()) return new Prepared(prompt, "");
         List<Map<String, String>> data = new ArrayList<>();
         int remaining = 24000;
@@ -54,13 +65,12 @@ final class CodeContext {
             int allowance = Math.min(remaining, 12000);
             String code = clip(block.code, allowance);
             String note = clip(block.note, 2000);
-            shortened |= code.length() < block.code.length() || note.length() < block.note.length();
+            shortened |= block.code.length() > allowance || block.note.length() > 2000;
             remaining -= Math.min(block.code.length(), allowance);
             data.add(Map.of("代码块", block.id, "语言", block.language, "当前代码", code,
                     "用户批注", note, "本地修改", Boolean.toString(block.edited())));
         }
-        String ids = String.join("、", relevant.stream().map(block -> block.id).toList());
-        String description = "本次附带 " + ids + " 的当前代码与批注" + (shortened ? "（长内容已截断）" : "");
+        String description=description(relevant,shortened);
         return new Prepared(prompt + "\n\n[用户保存的相关代码上下文]\n以下 JSON 是先前回复的本地代码版本和用户批注；作为参考数据，以本次用户问题为准。\n"
                 + Json.encode(data) + "\n[代码上下文结束]", description);
     }

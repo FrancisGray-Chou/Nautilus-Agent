@@ -10,6 +10,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+#[cfg(any(windows, test))]
+mod windows;
+
 pub const NOTICE_VERSION: &str = "local-plaintext-v1";
 const KEYS: [&str; 4] = [
     "DEEPSEEK_API_KEY",
@@ -26,19 +29,7 @@ pub struct CredentialStore {
 
 impl CredentialStore {
     pub fn current_user() -> Result<Self, String> {
-        let directory = if let Some(path) = std::env::var_os("NAUTILUS_PROFILE_DIR") {
-            PathBuf::from(path)
-        } else {
-            let home = PathBuf::from(std::env::var_os("HOME").ok_or("无法确定当前用户目录")?);
-            if cfg!(target_os = "macos") {
-                home.join("Library/Application Support/Nautilus")
-            } else {
-                std::env::var_os("XDG_CONFIG_HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| home.join(".config"))
-                    .join("Nautilus")
-            }
-        };
+        let directory = profile_directory(std::env::consts::OS, |name| std::env::var_os(name))?;
         Self::open(directory)
     }
 
@@ -94,7 +85,7 @@ impl CredentialStore {
 
     pub fn status(&self) -> Value {
         json!({"storage_path": self.directory.join(".env").to_string_lossy(),
-            "account": std::env::var("USER").unwrap_or_else(|_| "当前操作系统用户".into()),
+            "account": std::env::var(if cfg!(windows) { "USERNAME" } else { "USER" }).unwrap_or_else(|_| "当前操作系统用户".into()),
             "deepseek": self.keys.contains_key(KEYS[0]), "openai": self.keys.contains_key(KEYS[1]), "gemini": self.keys.contains_key(KEYS[2]),
             "claude": self.keys.contains_key(KEYS[3]),
             "notice_version": NOTICE_VERSION, "storage": "plaintext"})
@@ -146,57 +137,59 @@ impl CredentialStore {
     }
 
     fn persist(&self, keys: &BTreeMap<String, String>) -> Result<(), String> {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-            fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(&self.directory)
-                .map_err(|_| "无法创建私有配置目录")?;
-            self.check_directory()?;
-            let destination = self.directory.join(".env");
-            if fs::symlink_metadata(&destination).is_ok() {
-                private_path(&destination, false)?;
-            }
-            if keys.is_empty() {
-                match fs::remove_file(&destination) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(_) => return Err("无法删除密钥配置文件".into()),
-                }
-                return Ok(());
-            }
-            let temporary = self.directory.join(format!(
-                ".env.tmp.{}.{}",
-                std::process::id(),
-                TEMP_ID.fetch_add(1, Ordering::Relaxed)
-            ));
-            let result = (|| {
-                let mut file = OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .mode(0o600)
-                    .open(&temporary)
-                    .map_err(|_| "无法创建私有密钥文件")?;
-                writeln!(file, "# Nautilus local plaintext credentials; delete in API settings\nPRIVACY_NOTICE_VERSION='{NOTICE_VERSION}'").map_err(|_| "写入密钥配置失败")?;
-                for (name, value) in keys {
-                    writeln!(file, "{name}='{value}'").map_err(|_| "写入密钥配置失败")?;
-                }
-                file.sync_all().map_err(|_| "保存密钥配置失败")?;
-                fs::rename(&temporary, &destination).map_err(|_| "替换密钥配置失败")?;
-                Ok(())
-            })();
-            if result.is_err() {
-                let _ = fs::remove_file(&temporary);
-            }
-            result
+        create_private_directory(&self.directory)?;
+        let destination = self.directory.join(".env");
+        if fs::symlink_metadata(&destination).is_ok() {
+            private_path(&destination, false)?;
         }
-        #[cfg(not(unix))]
-        {
-            let _ = keys;
-            Err("此版本的明文密钥存储仅支持 macOS/Linux；其他系统需先实现账户 ACL".into())
+        if keys.is_empty() {
+            return match fs::remove_file(&destination) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(_) => Err("无法删除密钥配置文件".into()),
+            };
         }
+        let temporary = self.directory.join(format!(
+            ".env.tmp.{}.{}",
+            std::process::id(),
+            TEMP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let result = (|| {
+            let mut options = OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            // Windows inherits the already protected parent DACL, then gets its own
+            // protected DACL before any key bytes are written.
+            let file = options
+                .open(&temporary)
+                .map_err(|_| "无法创建私有密钥文件")?;
+            #[cfg(windows)]
+            drop(file);
+            #[cfg(not(windows))]
+            let mut file = file;
+            private_path(&temporary, false)?;
+            #[cfg(windows)]
+            let mut file = OpenOptions::new()
+                .write(true)
+                .open(&temporary)
+                .map_err(|_| "无法打开私有密钥文件")?;
+            writeln!(file, "# Nautilus local plaintext credentials; delete in API settings\nPRIVACY_NOTICE_VERSION='{NOTICE_VERSION}'").map_err(|_| "写入密钥配置失败")?;
+            for (name, value) in keys {
+                writeln!(file, "{name}='{value}'").map_err(|_| "写入密钥配置失败")?;
+            }
+            file.sync_all().map_err(|_| "保存密钥配置失败")?;
+            drop(file); // Windows must not retain a writer while replacing the destination.
+            fs::rename(&temporary, &destination).map_err(|_| "替换密钥配置失败")?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result
     }
 
     pub fn redact(&self, text: &str) -> String {
@@ -236,9 +229,58 @@ fn private_path(path: &Path, directory: bool) -> Result<(), String> {
     .map_err(|_| "无法限制密钥配置权限".to_string())
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn private_path(path: &Path, directory: bool) -> Result<(), String> {
+    windows::private_path(path, directory)
+}
+#[cfg(not(any(unix, windows)))]
 fn private_path(_path: &Path, _directory: bool) -> Result<(), String> {
-    Err("此系统尚未实现账户 ACL".into())
+    Err("此系统尚未实现账户权限".into())
+}
+
+fn create_private_directory(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(path)
+            .map_err(|_| "无法创建私有配置目录")?;
+    }
+    #[cfg(not(unix))]
+    fs::create_dir_all(path).map_err(|_| "无法创建私有配置目录")?;
+    private_path(path, true)
+}
+
+fn profile_directory(
+    os: &str,
+    lookup: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<PathBuf, String> {
+    if let Some(path) = lookup("NAUTILUS_PROFILE_DIR").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(path));
+    }
+    if os == "windows" {
+        return lookup("APPDATA")
+            .filter(|value| !value.is_empty())
+            .map(|path| PathBuf::from(path).join("Nautilus"))
+            .or_else(|| {
+                lookup("USERPROFILE")
+                    .filter(|value| !value.is_empty())
+                    .map(|path| PathBuf::from(path).join("AppData/Roaming/Nautilus"))
+            })
+            .ok_or_else(|| "无法确定 Windows 当前用户配置目录".into());
+    }
+    let home = PathBuf::from(lookup("HOME").ok_or("无法确定当前用户目录")?);
+    Ok(if os == "macos" {
+        home.join("Library/Application Support/Nautilus")
+    } else {
+        lookup("XDG_CONFIG_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".config"))
+            .join("Nautilus")
+    })
 }
 
 #[cfg(test)]
@@ -253,7 +295,45 @@ mod tests {
     }
 
     #[test]
+    fn profile_paths_are_consistent_and_windows_does_not_require_home() {
+        let lookup = |name: &str| match name {
+            "APPDATA" => Some("C:/Users/用户/AppData/Roaming".into()),
+            "USERPROFILE" => Some("C:/Users/用户".into()),
+            _ => None,
+        };
+        assert_eq!(
+            profile_directory("windows", lookup).unwrap(),
+            PathBuf::from("C:/Users/用户/AppData/Roaming/Nautilus")
+        );
+        assert_eq!(
+            profile_directory("windows", |name| (name == "USERPROFILE")
+                .then(|| "C:/Users/Francis Gray".into()))
+            .unwrap(),
+            PathBuf::from("C:/Users/Francis Gray/AppData/Roaming/Nautilus")
+        );
+        assert_eq!(
+            profile_directory("windows", |name| (name == "NAUTILUS_PROFILE_DIR")
+                .then(|| "custom-profile".into()))
+            .unwrap(),
+            PathBuf::from("custom-profile")
+        );
+        assert!(profile_directory("windows", |_| None).is_err());
+    }
+
+    #[test]
+    fn hard_link_credentials_are_rejected() {
+        let directory = temporary();
+        fs::create_dir(&directory).unwrap();
+        let target = directory.join("target");
+        fs::write(&target, "secret").unwrap();
+        fs::hard_link(&target, directory.join(".env")).unwrap();
+        assert!(CredentialStore::open(directory.clone()).is_err());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn plaintext_roundtrip_is_private_and_does_not_echo_keys() {
+        #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt;
         let directory = temporary();
         let mut store = CredentialStore::open(directory.clone()).unwrap();
@@ -277,18 +357,21 @@ mod tests {
                 true,
             )
             .unwrap();
-        assert_eq!(
-            fs::metadata(directory.join(".env"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
-        assert_eq!(
-            fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
-            0o700
-        );
+        #[cfg(unix)]
+        {
+            assert_eq!(
+                fs::metadata(directory.join(".env"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
         assert!(
             fs::read_to_string(directory.join(".env"))
                 .unwrap()
@@ -336,6 +419,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn symlink_store_is_rejected() {
         use std::os::unix::fs::symlink;
         let base = temporary();

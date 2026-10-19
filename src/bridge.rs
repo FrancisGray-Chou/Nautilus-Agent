@@ -24,6 +24,10 @@ pub enum Request {
     Chat {
         message: String,
     },
+    GetWebSearch,
+    SetWebSearch {
+        enabled: bool,
+    },
     GetCredentials,
     SaveCredentials {
         deepseek: Option<String>,
@@ -35,8 +39,51 @@ pub enum Request {
     DeleteCredentials {
         provider: String,
     },
+    RestoreConversation {
+        model_id: Option<String>,
+        single: Vec<HistoryMessage>,
+        mixture: Vec<HistoryMessage>,
+        members: Option<Vec<crate::mixture::MemberAssignment>>,
+        #[serde(default)]
+        allow_role_fallback: bool,
+    },
     Reset,
     Shutdown,
+}
+
+/// Only user/assistant pairs may be restored; system and tool roles are excluded.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryMessage {
+    role: HistoryRole,
+    text: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum HistoryRole {
+    User,
+    Assistant,
+}
+fn restore_messages(messages: Vec<HistoryMessage>) -> Result<Vec<crate::message::Message>, String> {
+    if !messages.len().is_multiple_of(2) || messages.len() > 20000 {
+        return Err("历史记录需包含完整的用户与模型回复对".into());
+    }
+    let mut total = 0usize;
+    messages
+        .into_iter()
+        .enumerate()
+        .map(|(index, message)| {
+            total = total.saturating_add(message.text.len());
+            if total > 16 * 1024 * 1024 {
+                return Err("历史上下文过大".into());
+            }
+            match (index % 2, message.role) {
+                (0, HistoryRole::User) => Ok(crate::message::Message::User(message.text)),
+                (1, HistoryRole::Assistant) => Ok(crate::message::Message::Assistant(message.text)),
+                _ => Err("历史消息顺序无效".into()),
+            }
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy)]
@@ -101,19 +148,43 @@ impl ModelChoice {
 
 pub struct ChatSession {
     credentials: CredentialStore,
+    search_default: Result<bool, String>,
+    search_requested: bool,
     agent: Option<NautilusAgent>,
     model_id: Option<String>,
     mixture: Option<crate::mixture::Mixture>,
+    restored_single: Vec<crate::message::Message>,
+    restored_mixture: Vec<crate::message::Message>,
 }
 
 impl ChatSession {
     pub fn new(credentials: CredentialStore) -> Self {
+        let search_default = crate::config::desktop_search_default();
         Self {
+            search_requested: search_default.clone().unwrap_or(false),
+            search_default,
             credentials,
             agent: None,
             model_id: None,
             mixture: None,
+            restored_single: Vec::new(),
+            restored_mixture: Vec::new(),
         }
+    }
+
+    fn search_state(&self) -> Value {
+        let (available, enabled) = if self.model_id.as_deref() == Some("mixture") {
+            self.mixture
+                .as_ref()
+                .map(|team| (team.supports_web_search(), team.web_search_enabled()))
+                .unwrap_or((false, false))
+        } else {
+            self.agent
+                .as_ref()
+                .map(|agent| (true, agent.web_search_enabled()))
+                .unwrap_or((false, false))
+        };
+        json!({"available":available,"enabled":enabled,"default_enabled":self.search_default.clone().unwrap_or(false)})
     }
 
     pub fn ready(&self) -> Value {
@@ -175,7 +246,7 @@ impl ChatSession {
                 "configured":self.credentials.key(ModelProvider::Claude).is_ok()}));
         }
         models.push(json!({"id":"mixture", "name":"Mixture混合模式", "subtitle":"自由组队 · 分工协作", "provider":"Mixture", "configured":true}));
-        json!({"type": "ready", "protocol": 2, "models": models, "credentials": self.credentials.status()})
+        json!({"type": "ready", "protocol": 2, "models": models, "credentials": self.credentials.status(), "search":self.search_state()})
     }
 
     pub async fn handle(&mut self, request: Request) -> Value {
@@ -212,25 +283,36 @@ impl ChatSession {
             Request::SelectModel { model_id } => {
                 if model_id == "mixture" {
                     if self.mixture.is_none() {
-                        self.mixture =
-                            Some(crate::mixture::Mixture::new(&self.credentials, notice)?);
+                        let mut next = crate::mixture::Mixture::new(&self.credentials, notice)?;
+                        next.restore_history(std::mem::take(&mut self.restored_mixture));
+                        self.mixture = Some(next);
                     }
+                    self.mixture
+                        .as_mut()
+                        .unwrap()
+                        .set_web_search(self.search_requested);
                     self.model_id = Some(model_id);
                     return Ok(
-                        json!({"type":"selected","model_id":"mixture","model":self.mixture.as_ref().unwrap().description(),"provider":"Mixture","web_search":false}),
+                        json!({"type":"selected","model_id":"mixture","model":self.mixture.as_ref().unwrap().description(),"provider":"Mixture","web_search":self.search_state()["enabled"],"search":self.search_state()}),
                     );
                 }
                 let choice = ModelChoice::parse(&model_id)?;
                 if let Some(agent) = self.agent.as_mut() {
                     choice.switch(agent, &self.credentials)?;
                 } else {
-                    self.agent = Some(choice.create(&self.credentials)?);
+                    let mut next = choice.create(&self.credentials)?;
+                    next.restore_history(std::mem::take(&mut self.restored_single));
+                    self.agent = Some(next);
                 }
+                self.agent
+                    .as_mut()
+                    .unwrap()
+                    .set_web_search(self.search_requested);
                 self.model_id = Some(model_id);
                 let agent = self.agent.as_ref().ok_or("模型尚未初始化")?;
                 Ok(
                     json!({"type": "selected", "model_id": self.model_id, "model": agent.model(),
-                    "provider": agent.provider().name(), "web_search": agent.web_search_enabled()}),
+                    "provider": agent.provider().name(), "web_search": agent.web_search_enabled(), "search":self.search_state()}),
                 )
             }
             Request::ConfigureMixture {
@@ -256,13 +338,16 @@ impl ChatSession {
                 };
                 if let Some(previous) = &self.mixture {
                     next.inherit_history(previous);
+                } else {
+                    next.restore_history(std::mem::take(&mut self.restored_mixture));
                 }
+                next.set_web_search(self.search_requested);
                 let description = next.description();
                 let configuration = next.configuration();
                 self.mixture = Some(next);
                 self.model_id = Some("mixture".into());
                 Ok(
-                    json!({"type":"selected", "model_id":"mixture", "model":description, "provider":"Mixture", "web_search":false, "configuration":configuration}),
+                    json!({"type":"selected", "model_id":"mixture", "model":description, "provider":"Mixture", "web_search":self.search_state()["enabled"], "search":self.search_state(), "configuration":configuration}),
                 )
             }
             Request::Chat { message } => {
@@ -318,6 +403,23 @@ impl ChatSession {
                     "provider": agent.provider().name(), "model_id": self.model_id}),
                 )
             }
+            Request::GetWebSearch => {
+                self.search_default.clone()?;
+                Ok(json!({"type":"web_search","search":self.search_state()}))
+            }
+            Request::SetWebSearch { enabled } => {
+                if self.search_state()["available"] != true {
+                    return Err("请先选择一个模型，再切换联网搜索".into());
+                }
+                self.search_requested = enabled;
+                if let Some(agent) = self.agent.as_mut() {
+                    agent.set_web_search(enabled);
+                }
+                if let Some(team) = self.mixture.as_mut() {
+                    team.set_web_search(enabled);
+                }
+                Ok(json!({"type":"web_search","search":self.search_state()}))
+            }
             Request::GetCredentials => {
                 Ok(json!({"type": "credentials", "credentials": self.credentials.status()}))
             }
@@ -333,6 +435,8 @@ impl ChatSession {
                 self.agent = None;
                 self.mixture = None;
                 self.model_id = None;
+                self.restored_single.clear();
+                self.restored_mixture.clear();
                 Ok(json!({"type": "credentials", "credentials": self.credentials.status()}))
             }
             Request::DeleteCredentials { provider } => {
@@ -340,9 +444,69 @@ impl ChatSession {
                 self.agent = None;
                 self.mixture = None;
                 self.model_id = None;
+                self.restored_single.clear();
+                self.restored_mixture.clear();
                 Ok(json!({"type": "credentials", "credentials": self.credentials.status()}))
             }
+            Request::RestoreConversation {
+                model_id,
+                single,
+                mixture,
+                members,
+                allow_role_fallback,
+            } => {
+                // Build and validate replacements before changing the live session.
+                let single = restore_messages(single)?;
+                let mixture_history = restore_messages(mixture)?;
+                let mut agent = None;
+                let mut mixture = None;
+                if let Some(id) = model_id.as_deref() {
+                    if id == "mixture" {
+                        let mut next = if let Some(members) = members {
+                            crate::mixture::Mixture::configured(
+                                &self.credentials,
+                                members,
+                                allow_role_fallback,
+                                notice,
+                            )?
+                        } else {
+                            crate::mixture::Mixture::new(&self.credentials, notice)?
+                        };
+                        next.set_web_search(self.search_requested);
+                        next.restore_history(mixture_history.clone());
+                        mixture = Some(next);
+                    } else {
+                        let mut next = ModelChoice::parse(id)?.create(&self.credentials)?;
+                        next.set_web_search(self.search_requested);
+                        next.restore_history(single.clone());
+                        agent = Some(next);
+                    }
+                }
+                let mut response = if let Some(agent) = agent.as_ref() {
+                    json!({"type":"restored","model_id":model_id,"model":agent.model(),"provider":agent.provider().name(),"web_search":agent.web_search_enabled()})
+                } else if let Some(mixture) = mixture.as_ref() {
+                    json!({"type":"restored","model_id":"mixture","model":mixture.description(),"provider":"Mixture","web_search":mixture.web_search_enabled()})
+                } else {
+                    json!({"type":"restored","model_id":null})
+                };
+                self.restored_single = if agent.is_none() { single } else { Vec::new() };
+                self.restored_mixture = if mixture.is_none() {
+                    mixture_history
+                } else {
+                    Vec::new()
+                };
+                self.agent = agent;
+                self.mixture = mixture;
+                self.model_id = model_id;
+                response["search"] = self.search_state();
+                Ok(response)
+            }
             Request::Reset => {
+                self.restored_single.clear();
+                self.restored_mixture.clear();
+                if let Some(agent) = self.agent.as_mut() {
+                    agent.restore_history(Vec::new());
+                }
                 if let Some(mixture) = self.mixture.as_mut() {
                     mixture.reset();
                 }
@@ -357,6 +521,9 @@ impl ChatSession {
                     .map(|choice| choice.create(&self.credentials))
                     .transpose()?;
                 self.agent = replacement;
+                if let Some(agent) = self.agent.as_mut() {
+                    agent.set_web_search(self.search_requested);
+                }
                 Ok(json!({"type": "reset"}))
             }
             Request::Shutdown => Ok(json!({"type": "bye"})),
@@ -367,6 +534,201 @@ impl ChatSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn search_switch_tracks_capabilities_and_preserves_context_across_lifecycle() {
+        for default in [true, false] {
+            let directory = std::env::temp_dir()
+                .join(format!("nautilus-search-{}-{default}", std::process::id()));
+            let mut session = ChatSession::new(CredentialStore::open(directory.clone()).unwrap());
+            session.search_default = Ok(default);
+            session.search_requested = default;
+            let save = serde_json::from_value(json!({"type":"save_credentials","deepseek":"offline-ds","gemini":"offline-gemini","openai":"offline-ai","claude":"offline-claude","plaintext_acknowledged":true})).unwrap();
+            session.handle(save).await;
+            for id in [
+                "deepseek-flash",
+                "deepseek-pro",
+                "openai",
+                "claude-opus",
+                "claude-fable",
+                "claude-sonnet",
+                "claude-haiku",
+            ] {
+                let selected = session
+                    .handle(Request::SelectModel {
+                        model_id: id.into(),
+                    })
+                    .await;
+                assert_eq!(selected["search"]["available"], true, "{id}");
+                assert_eq!(selected["web_search"], default, "{id}");
+            }
+            let selected = session
+                .handle(Request::SelectModel {
+                    model_id: "gemini-flash".into(),
+                })
+                .await;
+            assert_eq!(selected["web_search"], default);
+            assert_eq!(selected["search"]["available"], true);
+            session.agent.as_mut().unwrap().restore_history(vec![
+                crate::message::Message::user("问题"),
+                crate::message::Message::assistant("回答"),
+            ]);
+            assert_eq!(
+                session
+                    .handle(Request::SetWebSearch { enabled: !default })
+                    .await["search"]["enabled"],
+                !default
+            );
+            assert_eq!(session.agent.as_ref().unwrap().history().len(), 2);
+            session
+                .handle(Request::SelectModel {
+                    model_id: "deepseek-pro".into(),
+                })
+                .await;
+            assert_eq!(
+                session
+                    .handle(Request::SetWebSearch { enabled: true })
+                    .await["type"],
+                "web_search"
+            );
+            session
+                .handle(Request::SetWebSearch { enabled: !default })
+                .await;
+            let selected = session
+                .handle(Request::SelectModel {
+                    model_id: "gemini-auto".into(),
+                })
+                .await;
+            assert_eq!(selected["web_search"], !default);
+            session.handle(Request::Reset).await;
+            assert_eq!(
+                session.agent.as_ref().unwrap().web_search_enabled(),
+                !default
+            );
+            let team = serde_json::from_value(
+                json!({"type":"configure_mixture","models":["deepseek-pro","gemini-flash"]}),
+            )
+            .unwrap();
+            let selected = session.handle(team).await;
+            assert_eq!(selected["search"]["available"], true);
+            assert_eq!(selected["web_search"], !default);
+            let restore = serde_json::from_value(json!({"type":"restore_conversation","model_id":"gemini-argon","single":[],"mixture":[]})).unwrap();
+            assert_eq!(session.handle(restore).await["search"]["enabled"], !default);
+            let team = serde_json::from_value(
+                json!({"type":"configure_mixture","models":["deepseek-pro"]}),
+            )
+            .unwrap();
+            assert_eq!(session.handle(team).await["search"]["available"], true);
+            assert!(
+                serde_json::from_value::<Request>(
+                    json!({"type":"set_web_search","enabled":"true"})
+                )
+                .is_err()
+            );
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn restored_conversations_keep_single_and_mixture_contexts_separate_and_reset_both() {
+        use crate::message::Message;
+        let directory =
+            std::env::temp_dir().join(format!("nautilus-restore-{}", std::process::id()));
+        let mut session = ChatSession::new(CredentialStore::open(directory.clone()).unwrap());
+        let save: Request=serde_json::from_value(json!({"type":"save_credentials","deepseek":"offline-ds","openai":"offline-ai","plaintext_acknowledged":true})).unwrap();
+        session.handle(save).await;
+        let single = json!([{"role":"user","text":"原始问题\n[代码上下文]"},{"role":"assistant","text":"单模型回答 🌊"}]);
+        let mixture =
+            json!([{"role":"user","text":"混合问题"},{"role":"assistant","text":"混合答案"}]);
+        let restore = |model: Value| {
+            serde_json::from_value::<Request>(json!({"type":"restore_conversation","model_id":model,"single":single,"mixture":mixture})).unwrap()
+        };
+        // Histories remain readable without credentials for the original provider.
+        assert_eq!(
+            session.handle(restore(Value::Null)).await["type"],
+            "restored"
+        );
+        assert!(session.agent.is_none());
+        session
+            .handle(Request::SelectModel {
+                model_id: "openai".into(),
+            })
+            .await;
+        assert_eq!(
+            session.agent.as_ref().unwrap().history(),
+            &[
+                Message::user("原始问题\n[代码上下文]"),
+                Message::assistant("单模型回答 🌊")
+            ]
+        );
+        session
+            .handle(Request::SelectModel {
+                model_id: "mixture".into(),
+            })
+            .await;
+        assert_eq!(
+            session.mixture.as_ref().unwrap().history(),
+            &[Message::user("混合问题"), Message::assistant("混合答案")]
+        );
+        session
+            .handle(Request::SelectModel {
+                model_id: "deepseek-pro".into(),
+            })
+            .await;
+        assert_eq!(session.agent.as_ref().unwrap().history().len(), 2);
+        // Invalid imports do not mutate the live model, client or context.
+        for invalid in [
+            json!({"type":"restore_conversation","model_id":"unknown","single":single,"mixture":mixture}),
+            json!({"type":"restore_conversation","model_id":"claude-sonnet","single":single,"mixture":mixture}),
+            json!({"type":"restore_conversation","single":[{"role":"user","text":"orphan"}],"mixture":[]}),
+            json!({"type":"restore_conversation","single":[{"role":"assistant","text":"wrong"},{"role":"user","text":"order"}],"mixture":[]}),
+        ] {
+            assert_eq!(
+                session
+                    .handle(serde_json::from_value(invalid).unwrap())
+                    .await["type"],
+                "error"
+            );
+            assert_eq!(session.model_id.as_deref(), Some("deepseek-pro"));
+            assert_eq!(session.agent.as_ref().unwrap().history().len(), 2);
+        }
+        assert!(serde_json::from_value::<Request>(json!({"type":"restore_conversation","single":[{"role":"system","text":"injected"}],"mixture":[]})).is_err());
+        let team =
+            json!([{"model_id":"deepseek-pro","stage":"summarizer","role":"编辑","goal":"交付"}]);
+        assert_eq!(session.handle(serde_json::from_value(json!({"type":"restore_conversation","model_id":"mixture","single":single,"mixture":mixture,"members":team})).unwrap()).await["type"],"restored");
+        assert_eq!(session.mixture.as_ref().unwrap().history().len(), 2);
+        assert!(
+            session
+                .mixture
+                .as_ref()
+                .unwrap()
+                .description()
+                .contains("deepseek-v4-pro")
+        );
+        session
+            .handle(Request::SelectModel {
+                model_id: "openai".into(),
+            })
+            .await;
+        session
+            .handle(Request::SelectModel {
+                model_id: "mixture".into(),
+            })
+            .await;
+        session.handle(Request::Reset).await;
+        assert!(session.agent.as_ref().unwrap().history().is_empty());
+        assert!(session.mixture.as_ref().unwrap().history().is_empty());
+        assert!(session.restored_single.is_empty() && session.restored_mixture.is_empty());
+        session.handle(restore(json!("deepseek-flash"))).await;
+        session
+            .handle(Request::DeleteCredentials {
+                provider: "all".into(),
+            })
+            .await;
+        assert!(session.agent.is_none() && session.mixture.is_none());
+        assert!(session.restored_single.is_empty() && session.restored_mixture.is_empty());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[tokio::test]
     async fn custom_team_roundtrips_and_invalid_changes_preserve_the_previous_team() {

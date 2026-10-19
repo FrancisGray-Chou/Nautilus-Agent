@@ -1,0 +1,93 @@
+name: Windows MSI installer
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-msi-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: pwsh
+jobs:
+  windows-x64:
+    name: Build Windows x64 MSI
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          architecture: x64
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Prepare MSVC Rust and WiX 3
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain installation failed' }
+          rustup default stable
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain selection failed' }
+          rustup target add x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Rust MSVC target installation failed' }
+          $wix = Get-ChildItem 'C:\Program Files (x86)\WiX Toolset*\bin\candle.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $wix) {
+            choco install wixtoolset --version=3.14.1 -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed' }
+            $wix = Get-ChildItem 'C:\Program Files (x86)\WiX Toolset*\bin\candle.exe' | Select-Object -First 1
+          }
+          if (-not $wix) { throw 'WiX 3 candle.exe not found' }
+          $wix.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Check release metadata and packaging boundaries
+        run: python scripts/check_release.py
+      - name: Test installer packaging
+        run: python scripts/test_windows_package.py
+      - name: Test Windows ACL, desktop and bundled application; build MSI
+        run: python scripts/package_windows.py --installer-type msi --jdk-home "$env:JAVA_HOME" --output-dir "$env:RUNNER_TEMP\Nautilus-Installers" --transport sse
+      - name: Verify MSI database and SHA-256
+        run: |
+          $packages = @(Get-ChildItem "$env:RUNNER_TEMP\Nautilus-Installers\*.msi")
+          if ($packages.Count -ne 1) { throw 'Expected exactly one MSI installer' }
+          $msi = $packages[0]
+          $expected = ((Get-Content "$($msi.FullName).sha256" -Raw).Trim() -split '\s+')[0]
+          if ((Get-FileHash $msi.FullName -Algorithm SHA256).Hash -ine $expected) {
+            throw 'MSI SHA-256 mismatch'
+          }
+          $installer = New-Object -ComObject WindowsInstaller.Installer
+          $database = $installer.OpenDatabase($msi.FullName, 0)
+          $view = $database.OpenView("SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = 'ProductName'")
+          $view.Execute()
+          $record = $view.Fetch()
+          if (-not $record -or $record.StringData(1) -ne 'Nautilus') { throw 'Invalid MSI ProductName' }
+          $view.Close()
+          [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($record)
+          [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($view)
+          [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($database)
+          [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)
+      - uses: actions/upload-artifact@v6
+        id: upload
+        with:
+          name: Nautilus-Windows-x64-MSI-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/Nautilus-Installers/*.msi
+            ${{ runner.temp }}/Nautilus-Installers/*.msi.sha256
+          if-no-files-found: error
+          retention-days: 30
+      - name: Add installer download to run summary
+        env:
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          "### Nautilus Windows x64 MSI" >> $env:GITHUB_STEP_SUMMARY
+          "[Download installer and SHA-256]($env:ARTIFACT_URL)" >> $env:GITHUB_STEP_SUMMARY
+          "Includes the Java runtime and Rust backend. Extract the artifact ZIP, then open the .msi file." >> $env:GITHUB_STEP_SUMMARY

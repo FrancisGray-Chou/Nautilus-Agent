@@ -79,12 +79,28 @@ impl NautilusAgent {
         self.engine.web_search_enabled()
     }
 
+    pub(crate) fn set_web_search(&mut self, enabled: bool) {
+        self.engine.set_web_search(enabled);
+    }
+
     pub fn gemini_mode(&self) -> Option<GeminiMode> {
         self.engine.gemini_mode()
     }
 
     pub fn model_for_task(&self, input: &str) -> &str {
         self.engine.model_for_task(input)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn history(&self) -> &[Message] {
+        self.logbook.get_history()
+    }
+
+    pub(crate) fn restore_history(&mut self, history: Vec<Message>) {
+        self.logbook = Logbook::new();
+        for message in history {
+            self.logbook.push(message);
+        }
     }
 
     /// 纯文本聊天：仅在成功后写入本轮历史，不执行自定义工具。

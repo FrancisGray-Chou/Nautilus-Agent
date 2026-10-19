@@ -23,7 +23,7 @@ public final class SettingsMenuTest {
         SettingsMenu menu=(SettingsMenu)find(panel,"settings-menu");
         testGear();
         SwingUtilities.invokeAndWait(()->button(menu,"settings-toggle").doClick(0));
-        waitFor(()->menu.getPreferredSize().height>44&&menu.getPreferredSize().height<174);
+        waitFor(()->menu.getPreferredSize().height>44&&menu.getPreferredSize().height<214);
         SwingUtilities.invokeAndWait(()->menu.collapse());
         waitFor(()->!menu.isAnimating());
         SwingUtilities.invokeAndWait(()->{
@@ -32,7 +32,7 @@ public final class SettingsMenuTest {
         });
         waitFor(()->!menu.isAnimating());
         SwingUtilities.invokeAndWait(()->{
-            check(menu.getPreferredSize().height==174,"repeated toggles reach the expanded geometry");
+            check(menu.getPreferredSize().height==214,"repeated toggles reach the expanded geometry");
             menu.collapse();
         });
         waitFor(()->!menu.isAnimating());

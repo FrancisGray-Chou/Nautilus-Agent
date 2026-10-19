@@ -31,20 +31,22 @@ final class Transcript extends JPanel implements Scrollable {
     }
 
     void addMessage(String role, String text, boolean user, boolean error) {
-        MessageCard card = new MessageCard(role, text, user, error);
+        addMessage(role,text,user,error,LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")));
+    }
+    void addMessage(String role,String text,boolean user,boolean error,String time) {
+        MessageCard card = new MessageCard(role, text, user, error,time);
         messages.add(card); timeline.add(card); add(card); revalidate(); repaint();
     }
     void clear() { finishProgress(false);timeline.clear();messages.clear(); codeContext.clear(); suggest.accept(""); contextChanged.run(); removeAll(); revalidate(); repaint(); }
     int messageCount() { return messages.size(); }
+    String describe(String prompt){return codeContext.describe(prompt);}
     CodeContext.Prepared prepare(String prompt) { return codeContext.prepare(prompt); }
     List<CodeContext.Block> codeBlocks() { return codeContext.blocks(); }
 
     private int widthFor(MessageCard card, int available) {
         int maximum = Math.max(120, Math.min(820, available - 56));
         if (!card.user) return maximum;
-        String firstLine = card.text.lines().findFirst().orElse("");
-        int desired = getFontMetrics(Theme.font(15, false)).stringWidth(firstLine) + 42;
-        return Math.min(maximum, Math.max(260, Math.min(650, desired)));
+        return Math.min(maximum, Math.max(260, Math.min(650, card.naturalWidth)));
     }
     private int contentHeight(int width, boolean layout) {
         int y = 24;
@@ -73,17 +75,21 @@ final class Transcript extends JPanel implements Scrollable {
         final JTextComponent body;
         private final JLabel feedback = Theme.label("", 11, Theme.MUTED, false);
         private boolean liked;
+        private final int naturalWidth;
+        private int plainWidth=-1,plainHeight;
+        private Font plainFont;
 
-        MessageCard(String role, String text, boolean user, boolean error) {
-            super(error ? new Color(0x2C1C29) : user ? new Color(0x2B2941) : Theme.SURFACE,
-                    error ? new Color(0x67404F) : user ? new Color(0x4B426B) : Theme.LINE, 20);
+        MessageCard(String role, String text, boolean user, boolean error,String time) {
+            super(error ? Theme.color(0x2C1C29,0xFFF0F2) : user ? Theme.color(0x2B2941,0xEEE8FA) : Theme.SURFACE,
+                    error ? Theme.color(0x67404F,0xE1ACBA) : user ? Theme.color(0x4B426B,0xCCBDE8) : Theme.LINE, 20);
             this.user = user; this.text = text;
+            naturalWidth=user?getFontMetrics(Theme.font(15,false)).stringWidth(text.lines().findFirst().orElse(""))+42:0;
             setLayout(new BorderLayout(0, 10)); setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
             JPanel header = new JPanel(new BorderLayout()); header.setOpaque(false);
             JLabel roleLabel = Theme.label(role, 11, error ? Theme.ERROR : user ? Theme.ACCENT : Theme.MINT, true);
             roleLabel.setToolTipText(role); header.add(roleLabel, BorderLayout.CENTER);
             JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0)); actions.setOpaque(false);
-            actions.add(Theme.label(LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), 10, Theme.MUTED, false));
+            actions.add(Theme.label(time, 10, Theme.MUTED, false));
             Theme.Button copy = smallButton("复制全文"); copy.setName("copy-reply");
             I18n.tooltip(copy, "复制原始 Markdown 全文；代码块按钮复制当前编辑版本");
             copy.addActionListener(event -> {if(copyText(text))copy.feedback("已复制 ✓");});
@@ -107,12 +113,12 @@ final class Transcript extends JPanel implements Scrollable {
             }
             body.setEditable(false);
             body.setFont(Theme.font(15, false)); body.setForeground(Theme.TEXT); body.setOpaque(false);
-            body.setSelectionColor(new Color(0x5B507F)); body.setSelectedTextColor(Color.WHITE);
+            body.setSelectionColor(Theme.color(0x5B507F,0x7C68BB)); body.setSelectedTextColor(Color.WHITE);
             body.setBorder(BorderFactory.createEmptyBorder()); add(body, BorderLayout.CENTER);
             add(feedback, BorderLayout.SOUTH);
         }
         private Theme.Button smallButton(String label) {
-            Theme.Button button = new Theme.Button(label, false); button.setFont(Theme.font(11, false));
+            Theme.Button button = new Theme.Button(label, false).quiet(); button.setFont(Theme.font(11, false));
             button.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8)); return button;
         }
         private boolean copyText(String value) {
@@ -135,8 +141,11 @@ final class Transcript extends JPanel implements Scrollable {
         }
         int heightFor(int width) {
             if (body instanceof MarkdownPane markdown) return Math.max(104, markdown.heightFor(width - 36) + 88);
-            body.setSize(Math.max(40, width - 36), Short.MAX_VALUE);
-            return Math.max(104, body.getPreferredSize().height + 88);
+            int requested=Math.max(40,width-36);
+            if(plainWidth!=requested||!java.util.Objects.equals(plainFont,body.getFont())){
+                body.setSize(requested,Short.MAX_VALUE);plainHeight=Math.max(104,body.getPreferredSize().height+88);plainWidth=requested;plainFont=body.getFont();
+            }
+            return plainHeight;
         }
     }
 }

@@ -33,7 +33,7 @@ final class MixturePanel extends JPanel {
     private final Theme.Button confirm = new Theme.Button("开始协作", true);
     private final Consumer<ChatService.MixtureTeam> accept;
     private final Runnable cancel;
-    private final Timer animation = new Timer(Motion.FRAME_MS, event -> tick());
+    private final Motion.Loop animation = new Motion.Loop(event -> tick());
     private final Theme.Button recommend = new Theme.Button("推荐", false);
     private final RecommendationTray recommendations;
     private final Motion.Tween reveal = new Motion.Tween(1);
@@ -457,11 +457,11 @@ final class MixturePanel extends JPanel {
         @Override protected void paintComponent(Graphics graphics) {
             Graphics2D g = (Graphics2D) graphics.create(); Theme.antialias(g); int width = getWidth(), height = getHeight();
             MixtureStage current = assignedStage(option.id()); boolean active = option.id().equals(selectedModel), assigned = current != null;
-            Color base = lane != null ? new Color(0x202A3C) : new Color(0x192232);
-            g.setColor(Motion.blend(base, new Color(0x302B45), active ? 1 : hover));
+            Color base = lane != null ? Theme.color(0x202A3C,0xEBEFF8) : Theme.color(0x192232,0xFFFFFF);
+            g.setColor(Motion.blend(base, Theme.color(0x302B45,0xEAE3F8), active ? 1 : hover));
             g.fillRoundRect(0, 0, width - 1, height - 1, 11, 11);
-            g.setColor(Motion.blend(assigned ? new Color(0x46516D) : Theme.LINE, Theme.ACCENT, active ? 1 : hover)); g.drawRoundRect(0, 0, width - 1, height - 1, 11, 11);
-            Color accent = switch (option.provider()) { case "DeepSeek" -> new Color(0x8AB2FF); case "OpenAI" -> Theme.MINT; case "Claude" -> new Color(0xDFA88C); default -> Theme.ACCENT; };
+            g.setColor(Motion.blend(assigned ? Theme.color(0x46516D,0xA3AEC7) : Theme.LINE, Theme.ACCENT, active ? 1 : hover)); g.drawRoundRect(0, 0, width - 1, height - 1, 11, 11);
+            Color accent = switch (option.provider()) { case "DeepSeek" -> Theme.color(0x8AB2FF,0x3566B8); case "OpenAI" -> Theme.MINT; case "Claude" -> Theme.color(0xDFA88C,0xA65832); default -> Theme.ACCENT; };
             g.setColor(option.configured() ? accent : Theme.MUTED); g.setFont(Theme.font(16, true)); g.drawString(option.provider().substring(0, 1), 14, lane == null ? 28 : 30);
             g.setColor(option.configured() ? Theme.TEXT : Theme.MUTED); g.setFont(Theme.font(12, true));
             g.drawString(fit(g, option.name(), width - 82), 42, lane == null ? 25 : 29);

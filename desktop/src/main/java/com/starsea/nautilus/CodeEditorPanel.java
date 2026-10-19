@@ -38,6 +38,6 @@ final class CodeEditorPanel extends JPanel {
     void apply(CodeContext.Block block) { block.code = code.getText(); block.note = note.getText().strip(); }
     private static void style(JTextArea area) {
         area.setBackground(Theme.BG); area.setForeground(Theme.TEXT); area.setCaretColor(Theme.ACCENT);
-        area.setSelectionColor(new Color(0x5B507F)); area.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        area.setSelectionColor(Theme.color(0x5B507F,0x7C68BB)); area.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
     }
 }
