@@ -41,7 +41,7 @@ Nautilus 将 DeepSeek、OpenAI、Gemini 和 Claude 集成在同一个桌面界�
 - 桌面端另需 **JDK 17+**，包含 `java` 与 `javac`。
 - 至少一个平台的可用 API key，以及连接相应 API 的网络。
 
-本地验证环境为 macOS Apple Silicon、Rust/Cargo 1.98.1、OpenJDK 25.0.1，Java 按 17 目标编译。JDK 17 运行时、Linux 及其他架构仍需独立验证；Windows 尚未实现桌面密钥存储所需的账户 ACL。首次 Cargo 构建可能联网下载依赖，Markdown JAR 已随源码提供。
+本地验证环境为 macOS Apple Silicon、Rust/Cargo 1.98.1、OpenJDK 25.0.1，Java 按 17 目标编译。JDK 17 运行时、Linux 及其他架构仍需独立验证；Windows 已初步实现桌面密钥存储所需的账户 ACL，由Linux/MacOS转译而来。首次 Cargo 构建可能联网下载依赖，Markdown JAR 已随源码提供。
 
 ### 启动桌面端
 
